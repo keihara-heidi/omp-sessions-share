@@ -100,6 +100,7 @@ export default function DashboardPage() {
           <SessionList
             sessions={sessions.data}
             now={now}
+            openingId={selected?.id ?? null}
             onSelect={setSelected}
           />
         ))}
