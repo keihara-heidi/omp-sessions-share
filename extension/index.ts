@@ -658,24 +658,82 @@ function flushPendingUserText(rt: SessionRuntime): void {
 	}
 }
 
+type EditorTextApi = Pick<ExtensionContext["ui"], "getEditorText" | "setEditorText">;
+
+/** Submit an internal command without consuming a resumed session's editor prefill. */
+export async function submitEditorCommandPreservingDraft(
+	ui: EditorTextApi,
+	command: string,
+	submit: () => boolean,
+	waitForDispatch: () => Promise<void>,
+): Promise<boolean> {
+	let draft: string;
+	try {
+		draft = ui.getEditorText() ?? "";
+		ui.setEditorText(command);
+	} catch {
+		return false;
+	}
+
+	let submitted = false;
+	try {
+		submitted = submit();
+	} catch {
+		// Restore the draft below.
+	}
+	if (!submitted) {
+		try {
+			ui.setEditorText(draft);
+		} catch {
+			// ignore
+		}
+		return false;
+	}
+
+	// stdin dispatch is asynchronous. Wait until the editor consumed the
+	// command before restoring the prefill, or Enter submits the prefill itself.
+	for (let attempt = 0; attempt < 20; attempt++) {
+		await waitForDispatch();
+		let current: string;
+		try {
+			current = ui.getEditorText() ?? "";
+		} catch {
+			return false;
+		}
+		if (current === draft) return true;
+		if (current !== "" && current !== command) return false;
+		if (current === "") {
+			try {
+				ui.setEditorText(draft);
+				return true;
+			} catch {
+				return false;
+			}
+		}
+	}
+
+	try {
+		ui.setEditorText(draft);
+	} catch {
+		// ignore
+	}
+	return false;
+}
+
 async function tryTriggerNativeCollab(rt: SessionRuntime): Promise<boolean> {
 	if (bridge.webLink) return true;
 	if (!rt.ctx.hasUI) return false;
 
-	let editorText = "";
-	try {
-		editorText = rt.ctx.ui.getEditorText() ?? "";
-	} catch {
-		editorText = "";
-	}
-	if (editorText.trim() !== "") return false;
-
-	try {
-		rt.ctx.ui.setEditorText(NATIVE_COLLAB_COMMAND);
-	} catch {
-		return false;
-	}
-	if (!injectEnter()) return false;
+	const submitted = await submitEditorCommandPreservingDraft(
+		rt.ctx.ui,
+		NATIVE_COLLAB_COMMAND,
+		injectEnter,
+		() =>
+			new Promise<void>(resolve => {
+				rt.ctx.setTimeout(() => resolve(), 10);
+			}),
+	);
+	if (!submitted) return false;
 
 	const link = await waitForWebLink(12_000, rt.ctx);
 	return Boolean(link);

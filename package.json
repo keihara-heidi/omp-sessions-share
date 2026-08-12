@@ -1,6 +1,6 @@
 {
   "name": "omp-sessions-share",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "macOS OMP plugin: local session-share dashboard, Tailscale Serve, and native /collab auto-host.",
   "license": "MIT",
   "type": "module",
