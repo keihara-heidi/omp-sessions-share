@@ -1,11 +1,26 @@
 /** Shared API contracts — never includes plaintext collab links. */
 
+export type SessionGroupKind = "repository" | "folder";
+
+export type SessionGroup = {
+  kind: SessionGroupKind;
+  name: string;
+  path: string;
+};
+
+export type SessionWorktree = {
+  name: string;
+  path: string;
+};
+
 export type SessionSummary = {
   id: string;
   title: string;
   cwd: string;
   startedAt: string;
   lastSeenAt: string;
+  group: SessionGroup;
+  worktree: SessionWorktree;
 };
 
 export type JoinRequestStatus = "pending" | "approved" | "denied" | "expired";
@@ -149,6 +164,23 @@ export async function readJsonBody(
 }
 
 
+export function parseSessionGroup(v: unknown): SessionGroup | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (o.kind !== "repository" && o.kind !== "folder") return null;
+  if (!isNonEmptyString(o.name, 512)) return null;
+  if (!isNonEmptyString(o.path, 1024)) return null;
+  return { kind: o.kind, name: o.name, path: o.path };
+}
+
+export function parseSessionWorktree(v: unknown): SessionWorktree | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!isNonEmptyString(o.name, 512)) return null;
+  if (!isNonEmptyString(o.path, 1024)) return null;
+  return { name: o.name, path: o.path };
+}
+
 export function parseSessionSummary(v: unknown): SessionSummary | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
@@ -157,12 +189,18 @@ export function parseSessionSummary(v: unknown): SessionSummary | null {
   if (!isNonEmptyString(o.cwd, 1024)) return null;
   if (!isIsoTimestamp(o.startedAt)) return null;
   if (!isIsoTimestamp(o.lastSeenAt)) return null;
+  const group = parseSessionGroup(o.group);
+  if (!group) return null;
+  const worktree = parseSessionWorktree(o.worktree);
+  if (!worktree) return null;
   return {
     id: o.id,
     title: o.title,
     cwd: o.cwd,
     startedAt: o.startedAt,
     lastSeenAt: o.lastSeenAt,
+    group,
+    worktree,
   };
 }
 

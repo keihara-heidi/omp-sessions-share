@@ -481,6 +481,13 @@ function sessionTitleOf(ctx: ExtensionContext): string {
 	return ctx.sessionManager.getSessionName()?.trim() || "untitled";
 }
 
+/** Prefer Shared Context worktree path when present; fall back to session cwd. */
+function sessionCwdOf(ctx: ExtensionContext): string {
+	const worktree = process.env.SUPERCONDUCTOR_WORKTREE_PATH?.trim();
+	return worktree || ctx.cwd;
+}
+
+
 function notifyError(ctx: ExtensionContext, message: string): void {
 	const now = Date.now();
 	if (runtime && now - runtime.lastErrorAt < 4000) return;
@@ -520,7 +527,7 @@ function ensureRuntime(ctx: ExtensionContext, api: ExtensionAPI): SessionRuntime
 	if (runtime && runtime.sessionId === sessionId) {
 		runtime.ctx = ctx;
 		runtime.api = api;
-		runtime.cwd = ctx.cwd;
+		runtime.cwd = sessionCwdOf(ctx);
 		runtime.title = sessionTitleOf(ctx);
 		return runtime;
 	}
@@ -528,7 +535,7 @@ function ensureRuntime(ctx: ExtensionContext, api: ExtensionAPI): SessionRuntime
 	runtime = {
 		sessionId,
 		startedAt: new Date().toISOString(),
-		cwd: ctx.cwd,
+		cwd: sessionCwdOf(ctx),
 		title: sessionTitleOf(ctx),
 		ctx,
 		api,
@@ -559,7 +566,7 @@ async function pollOnce(rt: SessionRuntime): Promise<void> {
 	rt.polling = true;
 	try {
 		rt.title = sessionTitleOf(rt.ctx);
-		rt.cwd = rt.ctx.cwd;
+		rt.cwd = sessionCwdOf(rt.ctx);
 		const now = Date.now();
 		if (now - rt.lastHeartbeatAt >= 5_000) {
 			const heartbeat = await hostApi<unknown>("/api/host/sessions", {

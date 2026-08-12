@@ -36,36 +36,58 @@ afterEach(() => resetStoreForTests());
 
 describe("daemon store TTL pruning", () => {
   test("sessions expire after SESSION_TTL_SECONDS", () => {
-    upsertSession({
+    const created = upsertSession({
       id: "s1",
       title: "t",
       cwd: "/tmp",
       startedAt: "2026-08-12T00:00:00.000Z",
     });
+    expect(created.id).toBe("s1");
+    expect(created.group).toMatchObject({
+      kind: expect.stringMatching(/^(repository|folder)$/),
+      name: expect.any(String),
+      path: expect.any(String),
+    });
+    expect(created.worktree).toMatchObject({
+      name: expect.any(String),
+      path: expect.any(String),
+    });
     expect(getSession("s1")).not.toBeNull();
+    expect(getSession("s1")?.id).toBe("s1");
     expect(listSessions()).toHaveLength(1);
+    expect(listSessions()[0]?.id).toBe("s1");
 
     setNowForTests(() => t0 + SESSION_TTL_SECONDS * 1000);
     expect(getSession("s1")).toBeNull();
     expect(listSessions()).toEqual([]);
   });
 
-  test("heartbeat refreshes session TTL", () => {
-    upsertSession({
+  test("heartbeat refreshes session TTL and keeps stable id + nested metadata", () => {
+    const first = upsertSession({
       id: "s1",
       title: "t",
       cwd: "/tmp",
       startedAt: "2026-08-12T00:00:00.000Z",
     });
     setNowForTests(() => t0 + (SESSION_TTL_SECONDS - 1) * 1000);
-    upsertSession({
+    const second = upsertSession({
       id: "s1",
       title: "t2",
       cwd: "/tmp",
       startedAt: "2026-08-12T00:00:00.000Z",
     });
     setNowForTests(() => t0 + (SESSION_TTL_SECONDS + 5) * 1000);
-    expect(getSession("s1")).toMatchObject({ title: "t2" });
+    const live = getSession("s1");
+    expect(live).toMatchObject({
+      id: "s1",
+      title: "t2",
+      cwd: "/tmp",
+      group: first.group,
+      worktree: first.worktree,
+    });
+    expect(second.id).toBe("s1");
+    expect(second.group).toEqual(first.group);
+    expect(second.worktree).toEqual(first.worktree);
   });
 
   test("requests expire after REQUEST_TTL_SECONDS and prune from index", () => {
@@ -94,6 +116,36 @@ describe("daemon store TTL pruning", () => {
     setNowForTests(() => t0 + REQUEST_TTL_SECONDS * 1000);
     expect(getRequest(req.id)).toBeNull();
     expect(listRequestsBySession("s1")).toEqual([]);
+  });
+
+  test("listSessions preserves mobile session ids with group/worktree", () => {
+    upsertSession({
+      id: "mobile-session-1",
+      title: "Phone target",
+      cwd: "/tmp/a",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    setNowForTests(() => t0 + 1000);
+    upsertSession({
+      id: "mobile-session-2",
+      title: "Tablet target",
+      cwd: "/tmp/b",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const listed = listSessions();
+    expect(listed.map((s) => s.id)).toEqual([
+      "mobile-session-2",
+      "mobile-session-1",
+    ]);
+    for (const s of listed) {
+      expect(s.group.kind === "repository" || s.group.kind === "folder").toBe(
+        true,
+      );
+      expect(s.group.name.length).toBeGreaterThan(0);
+      expect(s.group.path.length).toBeGreaterThan(0);
+      expect(s.worktree.name.length).toBeGreaterThan(0);
+      expect(s.worktree.path.length).toBeGreaterThan(0);
+    }
   });
 });
 

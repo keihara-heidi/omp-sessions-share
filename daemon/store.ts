@@ -14,6 +14,7 @@ import {
   newId,
   stripEncryptedLink,
 } from "../lib/contracts";
+import { clearLocationCache, resolveSessionLocation } from "./location";
 
 type Timed<T> = { value: T; expiresAt: number };
 
@@ -90,12 +91,18 @@ export function upsertSession(
   if (!isValidId(input.id)) throw new Error("invalid session id");
   const now = nowMs();
   const existing = readSession(input.id, now);
+  const location =
+    existing && existing.cwd === input.cwd
+      ? { group: existing.group, worktree: existing.worktree }
+      : resolveSessionLocation(input.cwd);
   const session: SessionSummary = {
     id: input.id,
     title: input.title,
     cwd: input.cwd,
     startedAt: existing?.startedAt ?? input.startedAt,
     lastSeenAt: new Date(now).toISOString(),
+    group: location.group,
+    worktree: location.worktree,
   };
   writeSession(session, now);
   return session;
@@ -219,7 +226,6 @@ export function decideRequest(
   return next;
 }
 
-
 /** Global fixed-window login limit for this single-user daemon. */
 export function consumeLoginAttempt(): boolean {
   const now = nowMs();
@@ -238,4 +244,5 @@ export function resetStoreForTests(): void {
   sessionRequestIndex.clear();
   loginWindow = undefined;
   nowMs = () => Date.now();
+  clearLocationCache();
 }

@@ -1,23 +1,31 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { LogOut, WifiOff } from "lucide-react";
+import { LogOut, Search, WifiOff } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import type { SessionSummary } from "@/lib/contracts";
 import { api, ApiError } from "@/app/components/api";
+import { groupSessions } from "@/app/components/group-sessions";
 import JoinSession from "@/app/components/join-session";
+import { SessionGroups } from "@/app/components/session-groups";
 import {
+  NoResults,
   NoSessions,
-  SessionList,
   SessionSkeletons,
 } from "@/app/components/session-list";
 
 export default function DashboardPage() {
   const router = useRouter();
   const [selected, setSelected] = useState<SessionSummary | null>(null);
+  const [query, setQuery] = useState("");
 
   const sessions = useQuery({
     queryKey: ["sessions"],
@@ -31,6 +39,11 @@ export default function DashboardPage() {
     mutationFn: () => api<{ ok: true }>("/api/auth/logout", { method: "POST" }),
     onSettled: () => router.replace("/login"),
   });
+
+  const groups = useMemo(
+    () => groupSessions(sessions.data ?? [], query),
+    [sessions.data, query],
+  );
 
   const unauthorized =
     sessions.error instanceof ApiError && sessions.error.status === 401;
@@ -62,6 +75,21 @@ export default function DashboardPage() {
           Log out
         </Button>
       </header>
+
+      {sessions.data !== undefined && sessions.data.length > 0 && (
+        <InputGroup className="mb-6">
+          <InputGroupAddon>
+            <Search aria-hidden />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="search"
+            placeholder="Search folders, worktrees, sessions…"
+            aria-label="Search sessions"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </InputGroup>
+      )}
 
       {offline && (
         <Alert className="mb-4 border-amber-500/40 bg-amber-500/10 text-amber-500 [&>svg]:text-amber-500">
@@ -96,9 +124,11 @@ export default function DashboardPage() {
       {sessions.data !== undefined &&
         (sessions.data.length === 0 ? (
           <NoSessions />
+        ) : groups.length === 0 ? (
+          <NoResults query={query} onClear={() => setQuery("")} />
         ) : (
-          <SessionList
-            sessions={sessions.data}
+          <SessionGroups
+            groups={groups}
             now={now}
             openingId={selected?.id ?? null}
             onSelect={setSelected}

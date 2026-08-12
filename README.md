@@ -36,6 +36,16 @@ No Vercel, Redis, cloud database, or central service.
 3. On a tailnet-connected phone, open the URL and enter the password.
 4. Select a live session.
 
+Dashboard hierarchy:
+
+```text
+Folder / Repository
+└── Worktree
+    └── Sessions
+```
+
+Search matches folder/repository names and paths, worktrees, session titles, and session directories. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
+
 The browser receives the collab link encrypted to a non-extractable RSA key generated on that device. The relay sees only OMP's existing end-to-end encrypted collab frames.
 
 ## Repair setup

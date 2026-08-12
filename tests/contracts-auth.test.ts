@@ -6,7 +6,10 @@ import {
   parseCreateJoinRequestInput,
   parseHostSessionHeartbeat,
   parseRequestDecision,
+  parseSessionGroup,
   parseSessionSummary,
+  type SessionSummary,
+  parseSessionWorktree,
   readJsonBody,
 } from "../lib/contracts";
 import {
@@ -81,6 +84,23 @@ describe("contracts validators", () => {
         startedAt: "2026-01-01T00:00:00.000Z",
       }),
     ).toBeNull();
+
+    const validSummary: SessionSummary = {
+      id: "s1",
+      title: "t",
+      cwd: "/tmp/project",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      lastSeenAt: "2026-01-01T00:00:01.000Z",
+      group: {
+        kind: "repository",
+        name: "project",
+        path: "/tmp/project",
+      },
+      worktree: { name: "project", path: "/tmp/project" },
+    };
+    expect(parseSessionSummary(validSummary)).toEqual(validSummary);
+
+    // Missing nested metadata is invalid
     expect(
       parseSessionSummary({
         id: "s1",
@@ -89,7 +109,8 @@ describe("contracts validators", () => {
         startedAt: "2026-01-01T00:00:00.000Z",
         lastSeenAt: "2026-01-01T00:00:01.000Z",
       }),
-    ).not.toBeNull();
+    ).toBeNull();
+
     expect(
       parseCreateJoinRequestInput({ deviceName: "phone", publicKeyJwk: pubJwk }),
     ).not.toBeNull();
@@ -115,6 +136,84 @@ describe("contracts validators", () => {
     ).toBeNull();
     expect(isEncryptedLink({ algorithm: "RSA-OAEP-256", ciphertext })).toBe(true);
     expect(isEncryptedLink({ algorithm: "none", ciphertext })).toBe(false);
+  });
+
+  test("parseSessionGroup and parseSessionWorktree valid/invalid", () => {
+    expect(
+      parseSessionGroup({
+        kind: "repository",
+        name: "omp",
+        path: "/Users/dev/omp",
+      }),
+    ).toEqual({
+      kind: "repository",
+      name: "omp",
+      path: "/Users/dev/omp",
+    });
+    expect(
+      parseSessionGroup({ kind: "folder", name: "scratch", path: "/tmp/scratch" }),
+    ).toEqual({ kind: "folder", name: "scratch", path: "/tmp/scratch" });
+    expect(
+      parseSessionGroup({ kind: "other", name: "x", path: "/x" }),
+    ).toBeNull();
+    expect(parseSessionGroup({ kind: "repository", name: "", path: "/x" })).toBeNull();
+    expect(
+      parseSessionGroup({ kind: "repository", name: "x", path: "" }),
+    ).toBeNull();
+    expect(parseSessionGroup(null)).toBeNull();
+
+    expect(parseSessionWorktree({ name: "main", path: "/repo" })).toEqual({
+      name: "main",
+      path: "/repo",
+    });
+    expect(parseSessionWorktree({ name: "", path: "/repo" })).toBeNull();
+    expect(parseSessionWorktree({ name: "main", path: "" })).toBeNull();
+    expect(parseSessionWorktree({ path: "/repo" })).toBeNull();
+  });
+
+  test("parseSessionSummary rejects bad nested group/worktree", () => {
+    const base = {
+      id: "s1",
+      title: "t",
+      cwd: "/tmp/project",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      lastSeenAt: "2026-01-01T00:00:01.000Z",
+    };
+    expect(
+      parseSessionSummary({
+        ...base,
+        group: { kind: "repository", name: "project", path: "/tmp/project" },
+        worktree: { name: "", path: "/tmp/project" },
+      }),
+    ).toBeNull();
+    expect(
+      parseSessionSummary({
+        ...base,
+        group: { kind: "nope", name: "project", path: "/tmp/project" },
+        worktree: { name: "project", path: "/tmp/project" },
+      }),
+    ).toBeNull();
+    expect(
+      parseSessionSummary({
+        ...base,
+        group: { kind: "folder", name: "project", path: "/tmp/project" },
+        // worktree missing
+      }),
+    ).toBeNull();
+
+    const folderOk = {
+      ...base,
+      group: { kind: "folder" as const, name: "project", path: "/tmp/project" },
+      worktree: { name: "project", path: "/tmp/project" },
+    };
+    expect(parseSessionSummary(folderOk)).toEqual(folderOk);
+
+    // id stability for mobile open: parser must not rewrite id
+    const parsed = parseSessionSummary({
+      ...folderOk,
+      id: "mobile-stable-id_1",
+    });
+    expect(parsed?.id).toBe("mobile-stable-id_1");
   });
 
   test("bounds JSON request bodies at 16KiB default", async () => {
