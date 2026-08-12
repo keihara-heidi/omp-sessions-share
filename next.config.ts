@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   output: "export",
   // Emit out/login/index.html (directory-style paths) instead of login.html.
   trailingSlash: true,
+  generateBuildId: async () => "omp-sessions-share-0.1.0",
 };
 
 export default nextConfig;
