@@ -1,0 +1,456 @@
+/**
+ * First-run / idempotent local runtime installer for omp-sessions-share.
+ * Generates secrets, installs LaunchAgent daemon, Tailscale Serve, launcher.
+ * Never accepts secrets via argv; never prints hostToken/cookieSecret.
+ */
+import { randomBytes } from "node:crypto";
+import { access, chmod, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
+import {
+  type ShareConfig,
+  getShareConfigPath,
+  loadShareConfig,
+  writeShareConfig,
+} from "../shared/config";
+
+export type { ShareConfig };
+
+const PACKAGE_ROOT = path.resolve(import.meta.dir, "..");
+const LOCAL_ORIGIN = "http://127.0.0.1:7466";
+const TAILSCALE_HTTPS_PORT = 8443;
+const LAUNCH_LABEL = "sh.omp.sessions-share";
+const RUNTIME_DIR_NAME = "omp-sessions-share-runtime";
+const ALIAS_MARKER = "# omp-sessions-share launcher";
+const SECRET_BYTES = 32;
+const OMP_PKG = "@oh-my-pi/pi-coding-agent";
+
+function agentDir(): string {
+  const fromEnv = process.env.PI_CODING_AGENT_DIR?.trim();
+  if (fromEnv) return fromEnv;
+  return path.join(homedir(), ".omp", "agent");
+}
+
+function runtimeDir(): string {
+  return path.join(agentDir(), RUNTIME_DIR_NAME);
+}
+
+function assertDarwin(): void {
+  if (process.platform !== "darwin") {
+    throw new Error("omp-sessions-share v1 supports macOS only (os: darwin)");
+  }
+  if (typeof process.getuid !== "function") {
+    throw new Error("macOS user context required (missing getuid)");
+  }
+}
+
+function requireHome(): string {
+  const home = process.env.HOME?.trim() || homedir();
+  if (!home) throw new Error("Cannot resolve home directory");
+  return home;
+}
+
+let cachedBunBin: string | undefined;
+function resolveBunBin(): string {
+  if (cachedBunBin) return cachedBunBin;
+  const home = requireHome();
+  const candidates = [
+    process.env.BUN_INSTALL ? path.join(process.env.BUN_INSTALL, "bin", "bun") : "",
+    path.join(home, ".bun", "bin", "bun"),
+    "/opt/homebrew/bin/bun",
+    "/usr/local/bin/bun",
+    "bun",
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const probe = Bun.spawnSync([candidate, "--version"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    if (probe.exitCode === 0) return (cachedBunBin = candidate);
+  }
+  throw new Error("Bun 1.3.14 or newer is required and was not found");
+}
+
+function secretToken(): string {
+  return randomBytes(SECRET_BYTES).toString("base64url");
+}
+
+function run(
+  argv: string[],
+  opts: { allowFailure?: boolean } = {},
+): { ok: boolean; stdout: string; stderr: string; code: number } {
+  const result = Bun.spawnSync(argv, {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdout = result.stdout.toString();
+  const stderr = result.stderr.toString();
+  const code = result.exitCode ?? 1;
+  if (code !== 0 && !opts.allowFailure) {
+    throw new Error(`${argv.join(" ")} failed (${code}): ${stderr.trim() || stdout.trim()}`);
+  }
+  return { ok: code === 0, stdout, stderr, code };
+}
+
+function resolveTailscaleBin(): string {
+  const candidates = [
+    "tailscale",
+    "/usr/local/bin/tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+  ];
+  for (const bin of candidates) {
+    const probe = Bun.spawnSync([bin, "version"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    if (probe.exitCode === 0) return bin;
+  }
+  throw new Error(
+    "Tailscale CLI not found or not runnable. Install Tailscale, sign in, then re-run setup.",
+  );
+}
+
+type TailscaleStatus = {
+  BackendState?: string;
+  Self?: { DNSName?: string };
+};
+
+async function discoverPublicOrigin(tailscaleBin: string): Promise<string> {
+  const { stdout } = run([tailscaleBin, "status", "--json"]);
+  let status: TailscaleStatus;
+  try {
+    status = JSON.parse(stdout) as TailscaleStatus;
+  } catch {
+    throw new Error("tailscale status --json returned invalid JSON; is Tailscale running?");
+  }
+  if (status.BackendState !== "Running") {
+    throw new Error(
+      `Tailscale is not running (BackendState=${status.BackendState ?? "unknown"}). Open Tailscale and sign in.`,
+    );
+  }
+  const raw = status.Self?.DNSName?.trim();
+  if (!raw) {
+    throw new Error("Tailscale Self.DNSName missing; wait until this node is online on your tailnet.");
+  }
+  const host = raw.replace(/\.$/, "").toLowerCase();
+  if (!host.endsWith(".ts.net") || host.includes("/") || host.includes(":")) {
+    throw new Error(`Unexpected Tailscale DNS name: ${raw}`);
+  }
+  return `https://${host}:${TAILSCALE_HTTPS_PORT}`;
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveStaticBundleDir(): Promise<string> {
+  const candidates = [path.join(PACKAGE_ROOT, "out"), path.join(PACKAGE_ROOT, "web")];
+  for (const dir of candidates) {
+    if (
+      (await pathExists(path.join(dir, "index.html"))) &&
+      (await pathExists(path.join(dir, "login", "index.html")))
+    ) {
+      return dir;
+    }
+  }
+  const build = Bun.spawnSync([resolveBunBin(), "run", "build"], {
+    cwd: PACKAGE_ROOT,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (build.exitCode === 0) {
+    for (const dir of candidates) {
+      if (
+        (await pathExists(path.join(dir, "index.html"))) &&
+        (await pathExists(path.join(dir, "login", "index.html")))
+      ) {
+        return dir;
+      }
+    }
+  }
+  throw new Error("Static dashboard bundle missing or incomplete. Build before setup.");
+}
+
+/**
+ * Copy package runtime into ~/.omp/agent/omp-sessions-share-runtime.
+ * Layout preserves relative imports: daemon/, shared/, lib/*, daemon/web/.
+ */
+async function copyRuntimeAssets(staticDir: string): Promise<string> {
+  const dest = runtimeDir();
+  const staging = `${dest}.staging-${process.pid}`;
+  await rm(staging, { recursive: true, force: true });
+  await mkdir(staging, { recursive: true });
+
+  for (const name of ["daemon", "shared"] as const) {
+    const src = path.join(PACKAGE_ROOT, name);
+    if (!(await pathExists(src))) {
+      throw new Error(`Package incomplete: missing ${name}/`);
+    }
+    await cp(src, path.join(staging, name), { recursive: true });
+  }
+
+  await mkdir(path.join(staging, "lib"), { recursive: true });
+  for (const file of ["contracts.ts", "auth.ts"] as const) {
+    const src = path.join(PACKAGE_ROOT, "lib", file);
+    if (await pathExists(src)) {
+      await cp(src, path.join(staging, "lib", file));
+    }
+  }
+
+  // daemon/static.ts defaults to sibling web/ next to daemon/server.ts
+  await cp(staticDir, path.join(staging, "daemon", "web"), { recursive: true });
+
+  const entry = path.join(staging, "daemon", "server.ts");
+  if (!(await pathExists(entry))) {
+    throw new Error("Package incomplete: missing daemon/server.ts");
+  }
+
+  await rm(dest, { recursive: true, force: true });
+  await mkdir(path.dirname(dest), { recursive: true });
+  await rename(staging, dest);
+  return dest;
+}
+
+function xmlEscape(value: string): string {
+  return value
+    .replaceAll("&", "&" + "amp;")
+    .replaceAll("<", "&" + "lt;")
+    .replaceAll(">", "&" + "gt;")
+    .replaceAll('"', "&" + "quot;")
+    .replaceAll("'", "&" + "apos;");
+}
+
+async function installLaunchAgent(runtimeRoot: string): Promise<void> {
+  const home = requireHome();
+  const uid = process.getuid!();
+  const logsDir = path.join(home, ".omp", "logs");
+  const launchAgentsDir = path.join(home, "Library", "LaunchAgents");
+  const plistPath = path.join(launchAgentsDir, `${LAUNCH_LABEL}.plist`);
+  const logPath = path.join(logsDir, "omp-sessions-share.log");
+  const entry = path.join(runtimeRoot, "daemon", "server.ts");
+  const bunBin = resolveBunBin();
+  const configPath = getShareConfigPath();
+  const webRoot = path.join(runtimeRoot, "daemon", "web");
+
+  await mkdir(logsDir, { recursive: true });
+  await mkdir(launchAgentsDir, { recursive: true });
+
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${LAUNCH_LABEL}</string>
+  <key>ProgramArguments</key><array>
+    <string>${xmlEscape(bunBin)}</string>
+    <string>${xmlEscape(entry)}</string>
+  </array>
+  <key>WorkingDirectory</key><string>${xmlEscape(runtimeRoot)}</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>OMP_SESSIONS_SHARE_CONFIG</key><string>${xmlEscape(configPath)}</string>
+    <key>OMP_SESSIONS_SHARE_WEB</key><string>${xmlEscape(webRoot)}</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>${xmlEscape(logPath)}</string>
+  <key>StandardErrorPath</key><string>${xmlEscape(logPath)}</string>
+</dict></plist>
+`;
+  await writeFile(plistPath, plist, { mode: 0o600 });
+  await chmod(plistPath, 0o600);
+
+  const domain = `gui/${uid}`;
+  run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
+  // Unload legacy private relay agent if present.
+  run(["launchctl", "bootout", `${domain}/sh.omp.sessions-share-relay`], { allowFailure: true });
+  const loaded = run(["launchctl", "bootstrap", domain, plistPath], { allowFailure: true });
+  if (!loaded.ok) {
+    throw new Error(`launchctl bootstrap failed: ${loaded.stderr.trim() || loaded.stdout.trim()}`);
+  }
+  run(["launchctl", "enable", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
+  run(["launchctl", "kickstart", "-k", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
+}
+
+async function configureTailscaleServe(tailscaleBin: string): Promise<void> {
+  // Dedicated port avoids overwriting the user's existing Serve handlers.
+  run([
+    tailscaleBin,
+    "serve",
+    "--bg",
+    `--https=${TAILSCALE_HTTPS_PORT}`,
+    "--yes",
+    LOCAL_ORIGIN,
+  ]);
+}
+
+/** Resolve pinned OMP source CLI from this package's dependency tree. */
+function resolveBundledOmpCli(): string {
+  let pkgJson: string;
+  try {
+    pkgJson = Bun.resolveSync(`${OMP_PKG}/package.json`, PACKAGE_ROOT);
+  } catch {
+    try {
+      pkgJson = Bun.resolveSync(`${OMP_PKG}/package.json`, import.meta.dir);
+    } catch {
+      throw new Error(
+        `Missing dependency ${OMP_PKG}. Reinstall the plugin package so setup can build the omp launcher.`,
+      );
+    }
+  }
+  const cli = path.join(path.dirname(pkgJson), "src", "cli.ts");
+  return cli;
+}
+
+async function installLauncherAndAlias(): Promise<void> {
+  const home = requireHome();
+  const sourceCli = resolveBundledOmpCli();
+  if (!(await pathExists(sourceCli))) {
+    throw new Error(`OMP source CLI not found at ${sourceCli} (package incomplete)`);
+  }
+
+  const userBinDir = path.join(home, ".local", "bin");
+  const launcherPath = path.join(userBinDir, "omp-share");
+  await mkdir(userBinDir, { recursive: true });
+  const script = `#!/bin/sh\nexec ${JSON.stringify(resolveBunBin())} ${JSON.stringify(sourceCli)} "$@"\n`;
+  await writeFile(launcherPath, script, { mode: 0o700 });
+  await chmod(launcherPath, 0o700);
+
+  const zshrcPath = path.join(home, ".zshrc");
+  let zshrc = "";
+  try {
+    zshrc = await readFile(zshrcPath, "utf8");
+  } catch {
+    // create on write
+  }
+  if (!zshrc.includes(ALIAS_MARKER)) {
+    const separator = zshrc.length === 0 || zshrc.endsWith("\n") ? "" : "\n";
+    await writeFile(
+      zshrcPath,
+      `${zshrc}${separator}\n${ALIAS_MARKER}\nalias omp="$HOME/.local/bin/omp-share"\n`,
+    );
+  }
+
+}
+
+async function buildConfig(publicOrigin: string): Promise<ShareConfig> {
+  const existing = await loadShareConfig();
+  if (existing) {
+    return {
+      ...existing,
+      version: 1,
+      localOrigin: LOCAL_ORIGIN,
+      publicOrigin,
+    };
+  }
+  return {
+    version: 1,
+    localOrigin: LOCAL_ORIGIN,
+    publicOrigin,
+    hostToken: secretToken(),
+    dashboardPassword: secretToken(),
+    cookieSecret: secretToken(),
+  };
+}
+
+async function removeLegacyExtensionCopy(): Promise<void> {
+  const legacyDir = path.join(agentDir(), "extensions", "omp-sessions-share");
+  if (!(await pathExists(legacyDir))) return;
+  let owned = false;
+  try {
+    const manifest = JSON.parse(
+      await readFile(path.join(legacyDir, "package.json"), "utf8"),
+    ) as { name?: unknown };
+    owned =
+      manifest.name === "omp-sessions-share-extension" ||
+      manifest.name === "omp-sessions-share";
+  } catch {
+    // Older copies were loose extension directories without a manifest.
+  }
+  if (!owned) {
+    try {
+      const entry = await readFile(path.join(legacyDir, "index.ts"), "utf8");
+      owned =
+        entry.includes("OMP sessions-share host extension") &&
+        entry.includes("omp-sessions-share");
+    } catch {
+      owned = false;
+    }
+  }
+  if (!owned) {
+    throw new Error(
+      `Refusing to replace unrecognized extension directory: ${legacyDir}. Move it manually, then rerun setup.`,
+    );
+  }
+  await rm(legacyDir, { recursive: true, force: true });
+}
+
+/**
+ * Idempotent local runtime setup. Safe to call from interactive extension first-run
+ * or `omp-sessions-share-setup` CLI. Returns the written ShareConfig.
+ */
+export async function setupLocalRuntime(): Promise<ShareConfig> {
+  assertDarwin();
+  await removeLegacyExtensionCopy();
+  const tailscaleBin = resolveTailscaleBin();
+  const publicOrigin = await discoverPublicOrigin(tailscaleBin);
+  const staticDir = await resolveStaticBundleDir();
+  const runtimeRoot = await copyRuntimeAssets(staticDir);
+  const config = await buildConfig(publicOrigin);
+  await writeShareConfig(config);
+  await installLaunchAgent(runtimeRoot);
+  await configureTailscaleServe(tailscaleBin);
+  await installLauncherAndAlias();
+  return config;
+}
+
+async function removeLauncherAlias(home: string): Promise<void> {
+  const zshrcPath = path.join(home, ".zshrc");
+  let source: string;
+  try {
+    source = await readFile(zshrcPath, "utf8");
+  } catch {
+    return;
+  }
+  const lines = source.split("\n");
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] !== ALIAS_MARKER) {
+      kept.push(lines[i]!);
+      continue;
+    }
+    if (lines[i + 1]?.includes('alias omp="$HOME/.local/bin/omp-share"')) i++;
+    if (kept.at(-1) === "") kept.pop();
+  }
+  await writeFile(zshrcPath, kept.join("\n"));
+}
+
+/** Remove persistent runtime state. Run before `omp plugin uninstall`. */
+export async function uninstallLocalRuntime(): Promise<void> {
+  assertDarwin();
+  const home = requireHome();
+  const domain = `gui/${process.getuid!()}`;
+  run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
+  run(["launchctl", "bootout", `${domain}/sh.omp.sessions-share-relay`], { allowFailure: true });
+  try {
+    const tailscaleBin = resolveTailscaleBin();
+    run([tailscaleBin, "serve", `--https=${TAILSCALE_HTTPS_PORT}`, "off"], {
+      allowFailure: true,
+    });
+  } catch {
+    // Tailscale may already be removed.
+  }
+  await rm(runtimeDir(), { recursive: true, force: true });
+  await rm(getShareConfigPath(), { force: true });
+  await rm(path.join(home, "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`), {
+    force: true,
+  });
+  await rm(path.join(home, ".local", "bin", "omp-share"), { force: true });
+  await removeLegacyExtensionCopy();
+  await removeLauncherAlias(home);
+}

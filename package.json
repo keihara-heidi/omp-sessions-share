@@ -1,0 +1,90 @@
+{
+  "name": "omp-sessions-share",
+  "version": "0.1.0",
+  "description": "macOS OMP plugin: local session-share dashboard, Tailscale Serve, and native /collab auto-host.",
+  "license": "MIT",
+  "type": "module",
+  "os": ["darwin"],
+  "keywords": [
+    "omp-plugin",
+    "omp",
+    "oh-my-pi",
+    "collab",
+    "tailscale",
+    "sessions",
+    "share"
+  ],
+  "bin": {
+    "omp-sessions-share": "./setup/cli.ts"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "daemon",
+    "extension",
+    "lib/auth.ts",
+    "lib/contracts.ts",
+    "out",
+    "setup",
+    "shared"
+  ],
+  "omp": {
+    "extensions": ["./extension/index.ts"]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "bun test",
+    "setup": "bun setup/cli.ts",
+    "export:web": "next build",
+    "prepack": "bun run build"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "dependencies": {
+    "@oh-my-pi/pi-coding-agent": "17.2.15"
+  },
+  "devDependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@eslint/eslintrc": "^3.3.6",
+    "@shadcn/react": "^0.3.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tanstack/react-form": "^1.33.5",
+    "@tanstack/react-query": "^5.101.4",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^22.17.2",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "date-fns": "^4.4.0",
+    "embla-carousel-react": "^8.6.0",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.2",
+    "input-otp": "^1.4.2",
+    "lucide-react": "^1.31.0",
+    "next": "^15.5.2",
+    "next-themes": "^0.4.6",
+    "postcss": "^8.5.26",
+    "radix-ui": "^1.6.7",
+    "react": "^19.1.1",
+    "react-day-picker": "^10.0.1",
+    "react-dom": "^19.1.1",
+    "react-resizable-panels": "^4.12.2",
+    "recharts": "3.8.0",
+    "shadcn": "^4.17.0",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5.9.2",
+    "vaul": "^1.1.2"
+  }
+}
