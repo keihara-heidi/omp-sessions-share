@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ShareConfig } from "../shared/config";
 import { handleApi } from "../daemon/api";
 import { DASHBOARD_COOKIE_NAME } from "../lib/auth";
-import { resetStoreForTests } from "../daemon/store";
+import { resetStoreForTests, upsertSession } from "../daemon/store";
 
 const config: ShareConfig = {
   version: 1,
@@ -319,5 +319,84 @@ describe("approved session link flow", () => {
     );
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "Request body too large" });
+  });
+});
+
+describe("GET /api/events SSE", () => {
+  async function readChunk(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+  ): Promise<string> {
+    const { value, done } = await reader.read();
+    if (done || !value) return "";
+    return new TextDecoder().decode(value);
+  }
+
+  test("requires dashboard cookie auth", async () => {
+    const res = await api(new Request("http://local/api/events", { method: "GET" }));
+    expect(res.status).toBe(401);
+  });
+
+  test("streams event: sessions frames; upsert notifies; abort unsubscribes", async () => {
+    const cookie = await loginCookie();
+    const ac = new AbortController();
+    const res = await api(
+      new Request("http://local/api/events", {
+        method: "GET",
+        headers: { cookie, accept: "text/event-stream" },
+        signal: ac.signal,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toContain("text/event-stream");
+
+    const reader = res.body!.getReader();
+    const initial = await readChunk(reader);
+    // Contract: named sessions event. Payload is JSON (snapshot or invalidation).
+    expect(initial).toContain("event: sessions\n");
+    expect(initial).toMatch(/data: \{.*\}\n\n/);
+    const initialDataLine = initial
+      .split("\n")
+      .find((l) => l.startsWith("data: "));
+    expect(initialDataLine).toBeTruthy();
+    const initialPayload = JSON.parse(initialDataLine!.slice("data: ".length)) as {
+      data?: unknown;
+    };
+    // Initial empty list (or empty invalidation object).
+    if ("data" in initialPayload) {
+      expect(initialPayload.data).toEqual([]);
+    } else {
+      expect(initialPayload).toEqual({});
+    }
+
+    // Meaningful upsert should push another sessions frame (no real timers).
+    upsertSession({
+      id: "sse-session-1",
+      title: "live",
+      cwd: "/tmp/sse",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+
+    const next = await readChunk(reader);
+    expect(next).toContain("event: sessions\n");
+    const nextDataLine = next.split("\n").find((l) => l.startsWith("data: "));
+    expect(nextDataLine).toBeTruthy();
+    const nextPayload = JSON.parse(nextDataLine!.slice("data: ".length)) as {
+      data?: Array<{ id: string }>;
+    };
+    if (Array.isArray(nextPayload.data)) {
+      expect(nextPayload.data.some((s) => s.id === "sse-session-1")).toBe(true);
+    } else {
+      // Invalidation-only contract: empty object still names the sessions event.
+      expect(nextPayload).toEqual({});
+    }
+
+    ac.abort();
+    // After abort, further upserts must not throw; stream is closed.
+    upsertSession({
+      id: "sse-session-2",
+      title: "after-abort",
+      cwd: "/tmp/sse2",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
   });
 });

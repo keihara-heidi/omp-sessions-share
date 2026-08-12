@@ -30,12 +30,18 @@ export const LOGIN_ATTEMPT_MAX = 10;
 type LoginWindow = { count: number; resetAt: number };
 let loginWindow: LoginWindow | undefined;
 
+export type SessionChangeListener = (sessions: SessionSummary[]) => void;
+const sessionListeners = new Set<SessionChangeListener>();
+const PRUNE_INTERVAL_MS = 2_000;
+let pruneTimer: ReturnType<typeof setInterval> | undefined;
+
 /** Test seam — override wall clock for deterministic TTL pruning. */
 let nowMs: () => number = () => Date.now();
 
 export function setNowForTests(fn: (() => number) | null): void {
   nowMs = fn ?? (() => Date.now());
 }
+
 function ttlMs(seconds: number): number {
   return seconds * 1000;
 }
@@ -44,11 +50,103 @@ function alive<T>(entry: Timed<T> | undefined, now: number): boolean {
   return !!entry && entry.expiresAt > now;
 }
 
+function sessionFingerprint(s: SessionSummary): string {
+  // Meaningful fields only — lastSeenAt heartbeats do not notify.
+  return [
+    s.id,
+    s.title,
+    s.cwd,
+    s.startedAt,
+    s.group.kind,
+    s.group.name,
+    s.group.path,
+    s.worktree.name,
+    s.worktree.path,
+  ].join("\0");
+}
+
+function meaningfulChanged(
+  prev: SessionSummary | null,
+  next: SessionSummary,
+): boolean {
+  if (!prev) return true;
+  return sessionFingerprint(prev) !== sessionFingerprint(next);
+}
+
+/** Drop expired sessions; returns true when any removed. */
+function pruneExpiredSessions(now = nowMs()): boolean {
+  let changed = false;
+  for (const [id, entry] of sessions) {
+    if (!alive(entry, now)) {
+      sessions.delete(id);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function sortedLiveSessions(now = nowMs()): SessionSummary[] {
+  pruneExpiredSessions(now);
+  const out: SessionSummary[] = [];
+  for (const entry of sessions.values()) out.push(entry.value);
+  out.sort((a, b) =>
+    a.lastSeenAt < b.lastSeenAt ? 1 : a.lastSeenAt > b.lastSeenAt ? -1 : 0,
+  );
+  return out;
+}
+
+function notifySessionListeners(): void {
+  if (sessionListeners.size === 0) return;
+  const snapshot = sortedLiveSessions();
+  for (const listener of sessionListeners) {
+    try {
+      listener(snapshot);
+    } catch {
+      // listener errors must not break the store
+    }
+  }
+}
+
+function ensurePruneTimer(): void {
+  if (pruneTimer !== undefined) return;
+  pruneTimer = setInterval(() => {
+    if (pruneExpiredSessions()) notifySessionListeners();
+  }, PRUNE_INTERVAL_MS);
+  if (typeof pruneTimer === "object" && pruneTimer && "unref" in pruneTimer) {
+    pruneTimer.unref();
+  }
+}
+
+function stopPruneTimerIfIdle(): void {
+  if (sessionListeners.size > 0 || pruneTimer === undefined) return;
+  clearInterval(pruneTimer);
+  pruneTimer = undefined;
+}
+
+/**
+ * Subscribe to meaningful session list changes (create, title/cwd/group,
+ * expiry). Returns unsubscribe. Starts a prune timer while any listener is live.
+ */
+export function subscribeSessionChanges(
+  listener: SessionChangeListener,
+): () => void {
+  sessionListeners.add(listener);
+  ensurePruneTimer();
+  return () => {
+    sessionListeners.delete(listener);
+    stopPruneTimerIfIdle();
+  };
+}
+
 function readSession(id: string, now = nowMs()): SessionSummary | null {
   if (!isValidId(id)) return null;
   const entry = sessions.get(id);
   if (!alive(entry, now)) {
-    if (entry) sessions.delete(id);
+    if (entry) {
+      sessions.delete(id);
+      // Expiry noticed on read — notify only when someone is listening.
+      if (sessionListeners.size > 0) notifySessionListeners();
+    }
     return null;
   }
   return entry!.value;
@@ -104,7 +202,9 @@ export function upsertSession(
     group: location.group,
     worktree: location.worktree,
   };
+  const changed = meaningfulChanged(existing, session);
   writeSession(session, now);
+  if (changed) notifySessionListeners();
   return session;
 }
 
@@ -114,19 +214,7 @@ export function getSession(id: string): SessionSummary | null {
 
 /** All live sessions, newest lastSeenAt first. */
 export function listSessions(): SessionSummary[] {
-  const now = nowMs();
-  const out: SessionSummary[] = [];
-  for (const [id, entry] of sessions) {
-    if (!alive(entry, now)) {
-      sessions.delete(id);
-      continue;
-    }
-    out.push(entry.value);
-  }
-  out.sort((a, b) =>
-    a.lastSeenAt < b.lastSeenAt ? 1 : a.lastSeenAt > b.lastSeenAt ? -1 : 0,
-  );
-  return out;
+  return sortedLiveSessions();
 }
 
 export type CreateRequestArgs = CreateJoinRequestInput & { sessionId: string };
@@ -245,4 +333,9 @@ export function resetStoreForTests(): void {
   loginWindow = undefined;
   nowMs = () => Date.now();
   clearLocationCache();
+  sessionListeners.clear();
+  if (pruneTimer !== undefined) {
+    clearInterval(pruneTimer);
+    pruneTimer = undefined;
+  }
 }

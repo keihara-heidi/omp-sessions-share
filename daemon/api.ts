@@ -17,9 +17,12 @@ import {
   getRequest,
   listRequestsBySession,
   listSessions,
+  subscribeSessionChanges,
   upsertSession,
 } from "./store";
+
 import {
+  type SessionSummary,
   isJsonContentType,
   isNonEmptyString,
   isValidId,
@@ -31,6 +34,7 @@ import {
   readJsonBody,
   stripEncryptedLink,
 } from "../lib/contracts";
+
 
 function err(
   error: string,
@@ -126,6 +130,95 @@ async function handleListSessions(
     headers: { "Cache-Control": "no-store" },
   });
 }
+
+const SSE_KEEPALIVE_MS = 15_000;
+
+async function handleEvents(
+  req: Request,
+  config: ShareConfig,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+
+  const encoder = new TextEncoder();
+  let unsub: (() => void) | undefined;
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  let closed = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const enqueue = (chunk: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(chunk));
+        } catch {
+          closed = true;
+        }
+      };
+      const sendSessions = (sessions: SessionSummary[]) => {
+        enqueue(
+          `event: sessions\ndata: ${JSON.stringify({ data: sessions })}\n\n`,
+        );
+      };
+
+
+
+      // Initial snapshot so clients need no separate bootstrap fetch.
+      sendSessions(listSessions());
+
+      unsub = subscribeSessionChanges((sessions) => {
+        sendSessions(sessions);
+      });
+
+      keepalive = setInterval(() => {
+        enqueue(`: ka\n\n`);
+      }, SSE_KEEPALIVE_MS);
+      if (typeof keepalive === "object" && keepalive && "unref" in keepalive) {
+        keepalive.unref();
+      }
+
+      const onAbort = () => {
+        if (closed) return;
+        closed = true;
+        unsub?.();
+        unsub = undefined;
+        if (keepalive !== undefined) {
+          clearInterval(keepalive);
+          keepalive = undefined;
+        }
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+      };
+      if (req.signal.aborted) {
+        onAbort();
+        return;
+      }
+      req.signal.addEventListener("abort", onAbort, { once: true });
+    },
+    cancel() {
+      closed = true;
+      unsub?.();
+      unsub = undefined;
+      if (keepalive !== undefined) {
+        clearInterval(keepalive);
+        keepalive = undefined;
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store, no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
 
 async function handleCreateRequest(
   req: Request,
@@ -293,6 +386,10 @@ export async function handleApi(
   if (pathname === "/api/sessions" && method === "GET") {
     return handleListSessions(req, config);
   }
+  if (pathname === "/api/events" && method === "GET") {
+    return handleEvents(req, config);
+  }
+
 
   {
     const m = /^\/api\/sessions\/([^/]+)\/requests$/.exec(pathname);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut, Search, WifiOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -24,16 +24,29 @@ import {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<SessionSummary | null>(null);
   const [query, setQuery] = useState("");
 
   const sessions = useQuery({
     queryKey: ["sessions"],
     queryFn: () => api<SessionSummary[]>("/api/sessions"),
-    refetchInterval: 5_000,
+    refetchInterval: 15_000,
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
     retry: false,
   });
+
+  useEffect(() => {
+    const events = new EventSource("/api/events");
+    const refresh = () =>
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    events.addEventListener("sessions", refresh);
+    return () => {
+      events.removeEventListener("sessions", refresh);
+      events.close();
+    };
+  }, [queryClient]);
 
   const logout = useMutation({
     mutationFn: () => api<{ ok: true }>("/api/auth/logout", { method: "POST" }),

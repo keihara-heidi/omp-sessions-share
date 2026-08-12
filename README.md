@@ -17,7 +17,7 @@ OMP-only: upstream Pi does not provide `/collab`.
 omp plugin install github:keihara-heidi/omp-sessions-share
 ```
 
-Start OMP. First run asks permission to set up the local runtime. Accept, then open a new shell and run `omp` again.
+Start OMP. First run asks permission to set up the local runtime. Accept, then restart super.engineering once (or open a new shell) and run `omp` again.
 
 Setup creates:
 
@@ -25,7 +25,7 @@ Setup creates:
 - one persistent macOS LaunchAgent
 - one Tailscale Serve endpoint on HTTPS port `8443`
 - one private config at `~/.omp/agent/omp-sessions-share.json` with mode `0600`
-- one source-compatible OMP launcher alias
+- PATH-first source-compatible launchers at `~/.local/bin/omp` and `~/.local/bin/omp-share`
 
 No Vercel, Redis, cloud database, or central service.
 
@@ -45,6 +45,8 @@ Folder / Repository
 ```
 
 Search matches folder/repository names and paths, worktrees, session titles, and session directories. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
+
+Dashboard session changes arrive through an authenticated live event stream; no phone reload needed. A 15-second poll remains as a disconnect fallback.
 
 The browser receives the collab link encrypted to a non-extractable RSA key generated on that device. The relay sees only OMP's existing end-to-end encrypted collab frames.
 

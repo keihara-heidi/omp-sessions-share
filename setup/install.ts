@@ -21,6 +21,10 @@ const LOCAL_ORIGIN = "http://127.0.0.1:7466";
 const TAILSCALE_HTTPS_PORT = 8443;
 const LAUNCH_LABEL = "sh.omp.sessions-share";
 const RUNTIME_DIR_NAME = "omp-sessions-share-runtime";
+const LAUNCHER_MARKER = "omp-sessions-share-owned-launcher";
+const ZSH_BLOCK_BEGIN = "# omp-sessions-share begin";
+const ZSH_BLOCK_END = "# omp-sessions-share end";
+/** Legacy single-line marker still stripped on upgrade/uninstall. */
 const ALIAS_MARKER = "# omp-sessions-share launcher";
 const SECRET_BYTES = 32;
 const OMP_PKG = "@oh-my-pi/pi-coding-agent";
@@ -307,6 +311,58 @@ function resolveBundledOmpCli(): string {
   return cli;
 }
 
+async function isOwnedLauncher(filePath: string): Promise<boolean> {
+  try {
+    const body = await readFile(filePath, "utf8");
+    return body.includes(LAUNCHER_MARKER);
+  } catch {
+    return false;
+  }
+}
+
+async function writeOwnedLauncher(filePath: string, sourceCli: string): Promise<void> {
+  const script =
+    `#!/bin/sh\n` +
+    `# ${LAUNCHER_MARKER}\n` +
+    `exec ${JSON.stringify(resolveBunBin())} ${JSON.stringify(sourceCli)} "$@"\n`;
+  await writeFile(filePath, script, { mode: 0o700 });
+  await chmod(filePath, 0o700);
+}
+
+function zshManagedBlock(): string {
+  // zsh's tied, unique `path` array removes any later duplicate while keeping
+  // ~/.local/bin first, so Superconductor resolves our source launcher.
+  return [
+    ZSH_BLOCK_BEGIN,
+    "typeset -U path",
+    'path=("$HOME/.local/bin" $path)',
+    "export PATH",
+    'alias omp="$HOME/.local/bin/omp"',
+    ZSH_BLOCK_END,
+  ].join("\n");
+}
+
+function stripManagedZshBlocks(source: string): string {
+  const lines = source.split("\n");
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (line === ZSH_BLOCK_BEGIN) {
+      while (i < lines.length && lines[i] !== ZSH_BLOCK_END) i++;
+      if (kept.at(-1) === "") kept.pop();
+      continue;
+    }
+    if (line === ALIAS_MARKER) {
+      // Legacy two-line block: marker + alias omp=omp-share
+      if (lines[i + 1]?.includes("alias omp=")) i++;
+      if (kept.at(-1) === "") kept.pop();
+      continue;
+    }
+    kept.push(line);
+  }
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
 async function installLauncherAndAlias(): Promise<void> {
   const home = requireHome();
   const sourceCli = resolveBundledOmpCli();
@@ -315,11 +371,23 @@ async function installLauncherAndAlias(): Promise<void> {
   }
 
   const userBinDir = path.join(home, ".local", "bin");
-  const launcherPath = path.join(userBinDir, "omp-share");
   await mkdir(userBinDir, { recursive: true });
-  const script = `#!/bin/sh\nexec ${JSON.stringify(resolveBunBin())} ${JSON.stringify(sourceCli)} "$@"\n`;
-  await writeFile(launcherPath, script, { mode: 0o700 });
-  await chmod(launcherPath, 0o700);
+
+  const sharePath = path.join(userBinDir, "omp-share");
+  const ompPath = path.join(userBinDir, "omp");
+
+  // omp-share is always ours; rewrite freely.
+  await writeOwnedLauncher(sharePath, sourceCli);
+
+  // Never clobber a third-party ~/.local/bin/omp.
+  if (await pathExists(ompPath)) {
+    if (!(await isOwnedLauncher(ompPath))) {
+      throw new Error(
+        `Refusing to overwrite existing ${ompPath} (not an omp-sessions-share launcher). Move it aside and re-run setup.`,
+      );
+    }
+  }
+  await writeOwnedLauncher(ompPath, sourceCli);
 
   const zshrcPath = path.join(home, ".zshrc");
   let zshrc = "";
@@ -328,14 +396,9 @@ async function installLauncherAndAlias(): Promise<void> {
   } catch {
     // create on write
   }
-  if (!zshrc.includes(ALIAS_MARKER)) {
-    const separator = zshrc.length === 0 || zshrc.endsWith("\n") ? "" : "\n";
-    await writeFile(
-      zshrcPath,
-      `${zshrc}${separator}\n${ALIAS_MARKER}\nalias omp="$HOME/.local/bin/omp-share"\n`,
-    );
-  }
-
+  const cleaned = stripManagedZshBlocks(zshrc).replace(/\s+$/, "");
+  const separator = cleaned.length === 0 ? "" : "\n\n";
+  await writeFile(zshrcPath, `${cleaned}${separator}${zshManagedBlock()}\n`);
 }
 
 async function buildConfig(publicOrigin: string): Promise<ShareConfig> {
@@ -409,6 +472,15 @@ export async function setupLocalRuntime(): Promise<ShareConfig> {
   return config;
 }
 
+async function removeOwnedLauncher(filePath: string): Promise<void> {
+  if (!(await pathExists(filePath))) return;
+  if (!(await isOwnedLauncher(filePath))) {
+    // Leave foreign binaries alone.
+    return;
+  }
+  await rm(filePath, { force: true });
+}
+
 async function removeLauncherAlias(home: string): Promise<void> {
   const zshrcPath = path.join(home, ".zshrc");
   let source: string;
@@ -417,17 +489,10 @@ async function removeLauncherAlias(home: string): Promise<void> {
   } catch {
     return;
   }
-  const lines = source.split("\n");
-  const kept: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i] !== ALIAS_MARKER) {
-      kept.push(lines[i]!);
-      continue;
-    }
-    if (lines[i + 1]?.includes('alias omp="$HOME/.local/bin/omp-share"')) i++;
-    if (kept.at(-1) === "") kept.pop();
+  const next = stripManagedZshBlocks(source);
+  if (next !== source) {
+    await writeFile(zshrcPath, next.endsWith("\n") || next.length === 0 ? next : `${next}\n`);
   }
-  await writeFile(zshrcPath, kept.join("\n"));
 }
 
 /** Remove persistent runtime state. Run before `omp plugin uninstall`. */
@@ -450,7 +515,8 @@ export async function uninstallLocalRuntime(): Promise<void> {
   await rm(path.join(home, "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`), {
     force: true,
   });
-  await rm(path.join(home, ".local", "bin", "omp-share"), { force: true });
+  await removeOwnedLauncher(path.join(home, ".local", "bin", "omp-share"));
+  await removeOwnedLauncher(path.join(home, ".local", "bin", "omp"));
   await removeLegacyExtensionCopy();
   await removeLauncherAlias(home);
 }

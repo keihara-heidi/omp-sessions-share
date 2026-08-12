@@ -13,8 +13,10 @@ import {
   listSessions,
   resetStoreForTests,
   setNowForTests,
+  subscribeSessionChanges,
   upsertSession,
 } from "../daemon/store";
+import type { SessionChangeListener } from "../daemon/store";
 
 const pubJwk = {
   kty: "RSA",
@@ -161,4 +163,105 @@ describe("consumeLoginAttempt", () => {
     expect(consumeLoginAttempt()).toBe(true);
   });
 
+});
+
+describe("subscribeSessionChanges", () => {
+  test("upsert emits; unsubscribe stops further emits", () => {
+    const seen: string[][] = [];
+    const unsub = subscribeSessionChanges((sessions) => {
+      seen.push(sessions.map((s) => s.id));
+    });
+
+    upsertSession({
+      id: "s1",
+      title: "one",
+      cwd: "/tmp/a",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    expect(seen).toEqual([["s1"]]);
+
+    // Title change is meaningful → emit
+    upsertSession({
+      id: "s1",
+      title: "two",
+      cwd: "/tmp/a",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    expect(seen).toEqual([["s1"], ["s1"]]);
+
+    unsub();
+    const afterUnsub = seen.length;
+    upsertSession({
+      id: "s2",
+      title: "other",
+      cwd: "/tmp/b",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    expect(seen).toHaveLength(afterUnsub);
+  });
+
+  test("pure lastSeenAt heartbeat does not emit", () => {
+    const calls: number[] = [];
+    const unsub = subscribeSessionChanges(() => {
+      calls.push(1);
+    });
+    upsertSession({
+      id: "s1",
+      title: "t",
+      cwd: "/tmp",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    expect(calls).toHaveLength(1);
+
+    setNowForTests(() => t0 + 1000);
+    upsertSession({
+      id: "s1",
+      title: "t",
+      cwd: "/tmp",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    expect(calls).toHaveLength(1);
+    unsub();
+  });
+
+  test("expiry noticed on read emits without real timers", () => {
+    const snapshots: number[] = [];
+    const unsub = subscribeSessionChanges((sessions) => {
+      snapshots.push(sessions.length);
+    });
+    upsertSession({
+      id: "s1",
+      title: "t",
+      cwd: "/tmp",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    expect(snapshots.at(-1)).toBe(1);
+
+    setNowForTests(() => t0 + SESSION_TTL_SECONDS * 1000);
+    expect(getSession("s1")).toBeNull();
+    expect(snapshots.at(-1)).toBe(0);
+    unsub();
+  });
+
+  test("listener errors do not break subsequent notifies", () => {
+    let good = 0;
+    const bad: SessionChangeListener = () => {
+      throw new Error("boom");
+    };
+    const unsubBad = subscribeSessionChanges(bad);
+    const unsubGood = subscribeSessionChanges(() => {
+      good += 1;
+    });
+    expect(() =>
+      upsertSession({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-08-12T00:00:00.000Z",
+      }),
+    ).not.toThrow();
+    expect(good).toBe(1);
+    unsubBad();
+    unsubGood();
+  });
 });

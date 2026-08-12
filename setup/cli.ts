@@ -53,7 +53,8 @@ try {
   console.log(`Local origin:        ${config.localOrigin}`);
   console.log(`Config:              ~/.omp/agent/omp-sessions-share.json`);
   console.log(`Dashboard password:  ${config.dashboardPassword}`);
-  console.log("Open a new shell so the `omp` alias points at the source-compatible launcher.");
+  console.log("Installed launchers: ~/.local/bin/omp and ~/.local/bin/omp-share");
+  console.log("Restart Superconductor (or any already-open omp session) once so PATH picks up ~/.local/bin/omp.");
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`setup failed: ${message}`);
