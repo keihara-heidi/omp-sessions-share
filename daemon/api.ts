@@ -155,12 +155,58 @@ async function handleListSessions(
   });
 }
 
+async function pathIsDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
+}
+
+/** Remove locations deleted outside the dashboard and hide their stale sessions. */
+async function reconcileDashboardLocations(): Promise<void> {
+  const locations = listDashboardLocations();
+  const checks = new Map<string, Promise<boolean>>();
+  const exists = (path: string) => {
+    let check = checks.get(path);
+    if (!check) {
+      check = pathIsDirectory(path);
+      checks.set(path, check);
+    }
+    return check;
+  };
+  const availability = await Promise.all(
+    locations.map(async (location) => ({
+      location,
+      available:
+        (await exists(location.group.path)) &&
+        (await exists(location.worktree.path)),
+    })),
+  );
+  const sessions = listSessions();
+  for (const { location, available } of availability) {
+    if (available) continue;
+    removeDashboardLocation(location.group.path, location.worktree.path);
+    for (const session of sessions) {
+      if (
+        session.group.path === location.group.path &&
+        session.worktree.path === location.worktree.path
+      ) {
+        deactivateSession(session.id);
+      }
+    }
+  }
+}
+
 async function handleDashboard(
   req: Request,
   config: ShareConfig,
 ): Promise<Response> {
   const auth = await requireDashboardAuth(req, config);
   if (!isAuthOk(auth)) return noStore(auth);
+  await reconcileDashboardLocations();
   return jsonOk(getSessionDashboard(), {
     headers: { "Cache-Control": "no-store" },
   });
