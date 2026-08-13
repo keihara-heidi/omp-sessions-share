@@ -283,13 +283,27 @@ export function parseLaunchSessionInput(v: unknown): LaunchSessionInput | null {
   return isNonEmptyString(worktreePath, 1024) ? { worktreePath } : null;
 }
 
-/** Browser request to create a blank managed worktree for a live repo group. */
+/** Browser request to create a linked Git worktree for a live repo group. */
 export type CreateWorktreeInput = { groupPath: string };
 
 export function parseCreateWorktreeInput(v: unknown): CreateWorktreeInput | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const { groupPath } = v as Record<string, unknown>;
   return isNonEmptyString(groupPath, 1024) ? { groupPath } : null;
+}
+
+/** Browser request to remove a linked Git worktree from a live repo group. */
+export type DeleteWorktreeInput = {
+  groupPath: string;
+  worktreePath: string;
+};
+
+export function parseDeleteWorktreeInput(v: unknown): DeleteWorktreeInput | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const { groupPath, worktreePath } = v as Record<string, unknown>;
+  if (!isNonEmptyString(groupPath, 1024)) return null;
+  if (!isNonEmptyString(worktreePath, 1024)) return null;
+  return { groupPath, worktreePath };
 }
 
 export type PullRequestReadiness =

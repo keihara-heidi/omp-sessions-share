@@ -421,7 +421,7 @@ async function writeOwnedLauncher(filePath: string, sourceCli: string): Promise<
 
 function zshManagedBlock(): string {
   // zsh's tied, unique `path` array removes any later duplicate while keeping
-  // ~/.local/bin first, so Superconductor resolves our source launcher.
+  // ~/.local/bin first, so new shells resolve our source launcher.
   return [
     ZSH_BLOCK_BEGIN,
     "typeset -U path",

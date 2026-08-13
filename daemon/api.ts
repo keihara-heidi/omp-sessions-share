@@ -39,6 +39,7 @@ import {
   jsonOk,
   parseCreateJoinRequestInput,
   parseCreateWorktreeInput,
+  parseDeleteWorktreeInput,
   parseLaunchPullRequestTaskInput,
   parseLaunchSessionInput,
   parseHostSessionHeartbeat,
@@ -46,7 +47,7 @@ import {
   readJsonBody,
   stripEncryptedLink,
 } from "../lib/contracts";
-import { createBlankWorktree } from "./sc-worktree";
+import { createGitWorktree, removeGitWorktree } from "./git-worktree";
 import {
   buildPullRequestTask,
   getWorktreePullRequestStatus,
@@ -245,8 +246,13 @@ type LaunchOmp = (
 ) => Promise<void>;
 
 type CreateWorktree = (advertisedPaths: string[]) => Promise<{ path: string }>;
+type RemoveWorktree = (
+  repositoryPath: string,
+  worktreePath: string,
+) => Promise<void>;
 
 type ApiDeps = {
+  removeWorktree?: RemoveWorktree;
   getWorktreePullRequestStatus?: (
     worktreePath: string,
   ) => Promise<WorktreePullRequestStatus>;
@@ -329,14 +335,21 @@ async function handleCreateWorktree(
   if (!parsedBody.ok) return err(parsedBody.error, 400);
   const input = parseCreateWorktreeInput(parsedBody.value);
   if (!input) return err("Invalid body", 400);
+  const groupSessions = listSessions().filter(
+    (session) => session.group.path === input.groupPath,
+  );
+  if (groupSessions.length === 0) return err("Repository not found", 404);
+  if (groupSessions.every((session) => session.group.kind !== "repository")) {
+    return err("Not a git repository", 400);
+  }
   const advertisedPaths = [
     ...new Set(
-      listSessions()
-        .filter((session) => session.group.path === input.groupPath)
-        .flatMap((session) => [session.group.path, session.worktree.path]),
+      groupSessions.flatMap((session) => [
+        session.group.path,
+        session.worktree.path,
+      ]),
     ),
   ];
-  if (advertisedPaths.length === 0) return err("Repository not found", 404);
 
   try {
     const created = await createWorktree(advertisedPaths);
@@ -347,15 +360,59 @@ async function handleCreateWorktree(
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (message === "Project not found" || message === "Not a git repository") {
-      return err(message, message === "Project not found" ? 404 : 400);
-    }
+    if (message === "Not a git repository") return err(message, 400);
     return err("Could not create worktree", 500);
   }
 }
 
 function isAdvertisedWorktreePath(worktreePath: string): boolean {
   return listSessions().some((session) => session.worktree.path === worktreePath);
+}
+
+async function handleDeleteWorktree(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const input = parseDeleteWorktreeInput(parsedBody.value);
+  if (!input) return err("Invalid body", 400);
+  if (input.groupPath === input.worktreePath) {
+    return err("Cannot delete the primary worktree", 400);
+  }
+
+  const sessions = listSessions().filter(
+    (session) =>
+      session.group.kind === "repository" &&
+      session.group.path === input.groupPath &&
+      session.worktree.path === input.worktreePath,
+  );
+  if (sessions.length === 0) return err("Worktree not found", 404);
+
+  const removeWorktree = deps.removeWorktree ?? removeGitWorktree;
+  try {
+    await removeWorktree(input.groupPath, input.worktreePath);
+    for (const session of sessions) {
+      const pid = exclusiveSessionPid(session.id);
+      deactivateSession(session.id);
+      if (pid !== undefined) killSessionProcess(pid);
+    }
+    return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message === "Not a git repository" || message === "Cannot delete the primary worktree") {
+      return err(message, 400);
+    }
+    if (message === "Worktree not found") return err(message, 404);
+    if (message === "Worktree has uncommitted changes") return err(message, 409);
+    return err("Could not delete worktree", 500);
+  }
 }
 
 async function handleWorktreePullRequest(
@@ -608,7 +665,7 @@ export async function handleApi(
   config: ShareConfig,
   pathname: string,
   launchOmp: LaunchOmp = launchOmpInTerminal,
-  createWorktree: CreateWorktree = createBlankWorktree,
+  createWorktree: CreateWorktree = createGitWorktree,
   deps: ApiDeps = {},
 ): Promise<Response | null> {
   if (!pathname.startsWith("/api/")) return null;
@@ -631,6 +688,9 @@ export async function handleApi(
   }
   if (pathname === "/api/sessions/worktrees" && method === "POST") {
     return handleCreateWorktree(req, config, launchOmp, createWorktree);
+  }
+  if (pathname === "/api/sessions/worktrees" && method === "DELETE") {
+    return handleDeleteWorktree(req, config, deps);
   }
   if (pathname === "/api/worktrees/pr" && method === "GET") {
     return handleWorktreePullRequest(req, config, deps);

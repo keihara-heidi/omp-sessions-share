@@ -54,7 +54,7 @@ try {
   console.log(`Config:              ~/.omp/agent/omp-sessions-share.json`);
   console.log(`Dashboard password:  ${config.dashboardPassword}`);
   console.log("Installed launchers: ~/.local/bin/omp and ~/.local/bin/omp-share");
-  console.log("Restart Superconductor (or any already-open omp session) once so PATH picks up ~/.local/bin/omp.");
+  console.log("Restart any already-open terminal or OMP session once so PATH picks up ~/.local/bin/omp.");
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`setup failed: ${message}`);

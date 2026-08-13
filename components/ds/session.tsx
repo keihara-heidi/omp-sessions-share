@@ -140,16 +140,18 @@ export function SessionItems({ children }: { children: ReactNode }) {
 export function TouchButton({
   wide,
   primary,
+  danger,
   children,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   wide?: boolean;
   primary?: boolean;
+  danger?: boolean;
 }) {
   return (
     <Button
       type="button"
-      variant={primary ? "default" : "outline"}
+      variant={danger ? "destructive" : primary ? "default" : "outline"}
       size={wide ? "touch" : "touch-inline"}
       {...props}
     >
