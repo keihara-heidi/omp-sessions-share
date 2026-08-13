@@ -1,5 +1,7 @@
 /** In-memory session + join-request store with TTL Maps. */
 
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   type CreateJoinRequestInput,
   type DashboardLocation,
@@ -12,8 +14,11 @@ import {
   type SessionSummary,
   REQUEST_TTL_SECONDS,
   SESSION_TTL_SECONDS,
+  isIsoTimestamp,
   isValidId,
   newId,
+  parseSessionGroup,
+  parseSessionWorktree,
   stripEncryptedLink,
 } from "../lib/contracts";
 import { clearLocationCache, readGitBranch, resolveSessionLocation } from "./location";
@@ -23,6 +28,7 @@ type Timed<T> = { value: T; expiresAt: number };
 const sessions = new Map<string, Timed<SessionSummary>>();
 /** Worktrees remain available after their last live session expires. */
 const dashboardLocations = new Map<string, DashboardLocation>();
+let dashboardLocationsPersistencePath: string | undefined;
 const inactiveSessionIds = new Set<string>();
 const requests = new Map<string, Timed<JoinRequestResult>>();
 /** sessionId → request ids */
@@ -102,6 +108,50 @@ function writeDashboardLocation(location: DashboardLocation): boolean {
     previous.lastSessionStartedAt !== next.lastSessionStartedAt;
   dashboardLocations.set(key, next);
   return changed;
+}
+
+function parseDashboardLocation(value: unknown): DashboardLocation | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const group = parseSessionGroup(record.group);
+  const worktree = parseSessionWorktree(record.worktree);
+  if (!group || !worktree || !isIsoTimestamp(record.lastSessionStartedAt)) return null;
+  return { group, worktree, lastSessionStartedAt: record.lastSessionStartedAt };
+}
+
+function persistDashboardLocations(): void {
+  const path = dashboardLocationsPersistencePath;
+  if (!path) return;
+  const temporaryPath = `${path}.tmp-${process.pid}`;
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      temporaryPath,
+      `${JSON.stringify({ version: 1, locations: listDashboardLocations() }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    chmodSync(temporaryPath, 0o600);
+    renameSync(temporaryPath, path);
+  } catch {
+    // Sharing remains usable if location history cannot be persisted.
+  }
+}
+
+/** Load and enable durable location history for this daemon process. */
+export function configureDashboardLocationPersistence(path: string): void {
+  dashboardLocationsPersistencePath = path;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+    const record = parsed as { version?: unknown; locations?: unknown };
+    if (record.version !== 1 || !Array.isArray(record.locations)) return;
+    for (const value of record.locations) {
+      const location = parseDashboardLocation(value);
+      if (location) writeDashboardLocation(location);
+    }
+  } catch {
+    // Missing or invalid history starts with an empty registry.
+  }
 }
 
 /** Drop expired sessions; returns true when any removed. */
@@ -245,6 +295,7 @@ export function upsertSession(
     worktree: session.worktree,
     lastSessionStartedAt: session.startedAt,
   });
+  if (locationChanged) persistDashboardLocations();
   writeSession(session, now);
   if (input.pid !== undefined) sessionPids.set(session.id, input.pid);
   if (changed || locationChanged) notifySessionListeners();
@@ -262,7 +313,10 @@ export function registerDashboardLocation(
     ? { ...location.worktree, branch }
     : location.worktree;
   const registered = { group: location.group, worktree, lastSessionStartedAt };
-  if (writeDashboardLocation(registered)) notifySessionListeners();
+  if (writeDashboardLocation(registered)) {
+    persistDashboardLocations();
+    notifySessionListeners();
+  }
   return registered;
 }
 
@@ -283,7 +337,10 @@ export function removeDashboardLocation(
   const removed = dashboardLocations.delete(
     dashboardLocationKey(groupPath, worktreePath),
   );
-  if (removed) notifySessionListeners();
+  if (removed) {
+    persistDashboardLocations();
+    notifySessionListeners();
+  }
   return removed;
 }
 
@@ -434,6 +491,7 @@ export function consumeLoginAttempt(): boolean {
 export function resetStoreForTests(): void {
   sessions.clear();
   dashboardLocations.clear();
+  dashboardLocationsPersistencePath = undefined;
   inactiveSessionIds.clear();
   requests.clear();
   sessionRequestIndex.clear();

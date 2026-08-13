@@ -33,6 +33,11 @@ export function getShareConfigPath(root = agentDir()): string {
   return join(root, "omp-sessions-share.json");
 }
 
+/** Persistent dashboard locations stored beside the private share config. */
+export function getDashboardLocationsPath(root = agentDir()): string {
+  return join(root, "omp-sessions-share-locations.json");
+}
+
 function isNonEmptyString(v: unknown, max: number): v is string {
   return typeof v === "string" && v.length > 0 && v.length <= max;
 }

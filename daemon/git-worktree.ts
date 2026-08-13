@@ -25,6 +25,38 @@ function findGitRepo(advertisedPaths: string[]): string | null {
   return null;
 }
 
+export type GitWorktree = {
+  path: string;
+  branch?: string;
+};
+
+/** List every checkout registered in the repository containing `path`. */
+export function listGitWorktrees(path: string): GitWorktree[] {
+  const result = Bun.spawnSync(
+    ["git", "-C", path, "worktree", "list", "--porcelain", "-z"],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  if (result.exitCode !== 0) return [];
+
+  const worktrees: GitWorktree[] = [];
+  let current: GitWorktree | undefined;
+  const flush = () => {
+    if (current) worktrees.push(current);
+  };
+  for (const field of new TextDecoder().decode(result.stdout).split("\0")) {
+    if (field.startsWith("worktree ")) {
+      flush();
+      current = { path: field.slice("worktree ".length) };
+      continue;
+    }
+    if (current && field.startsWith("branch refs/heads/")) {
+      current.branch = field.slice("branch refs/heads/".length);
+    }
+  }
+  flush();
+  return worktrees.filter((worktree) => worktree.path.length > 0);
+}
+
 /** Add a sibling linked worktree with a fresh local branch. */
 export async function createGitWorktree(advertisedPaths: string[]): Promise<{
   path: string;

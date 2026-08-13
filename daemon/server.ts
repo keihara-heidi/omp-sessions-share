@@ -1,6 +1,7 @@
 /** Local omp-sessions-share daemon: API + static dashboard + collab relay. */
 
 import {
+  getDashboardLocationsPath,
   getShareConfigPath,
   loadShareConfigOrThrow,
   listenEndpoint,
@@ -16,12 +17,16 @@ import {
 } from "./relay";
 import { MacSleepInhibitor } from "./sleep-inhibitor";
 import { resolveWebRoot, serveStatic } from "./static";
-import { subscribeSessionChanges } from "./store";
+import {
+  configureDashboardLocationPersistence,
+  subscribeSessionChanges,
+} from "./store";
 
 async function main(): Promise<void> {
   const configPath =
     process.env.OMP_SESSIONS_SHARE_CONFIG?.trim() || getShareConfigPath();
   const config: ShareConfig = await loadShareConfigOrThrow(configPath);
+  configureDashboardLocationPersistence(getDashboardLocationsPath());
   const { hostname, port } = listenEndpoint(config);
   const webRoot = resolveWebRoot();
 

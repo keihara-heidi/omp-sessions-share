@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
@@ -256,6 +256,36 @@ describe("local daemon auth gates", () => {
       );
       expect(unknown?.status).toBe(404);
     } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("discovers every existing worktree for a remembered repository", async () => {
+    const repo = initGitRepo();
+    const linked = await createGitWorktree([repo]);
+    try {
+      const session = upsertSession({
+        id: "worktree_discovery_source",
+        title: "Repository source",
+        cwd: repo,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      expect(deactivateSession(session.id)).toBe(true);
+
+      const cookie = await loginCookie();
+      const res = await api(
+        new Request("http://local/api/dashboard", { headers: { cookie } }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        data: { sessions: unknown[]; locations: Array<{ worktree: { path: string } }> };
+      };
+      expect(body.data.sessions).toEqual([]);
+      expect(body.data.locations.map((location) => location.worktree.path).sort()).toEqual(
+        [realpathSync(repo), realpathSync(linked.path)].sort(),
+      );
+    } finally {
+      rmSync(linked.path, { recursive: true, force: true });
       rmSync(repo, { recursive: true, force: true });
     }
   });

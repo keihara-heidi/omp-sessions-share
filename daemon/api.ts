@@ -51,7 +51,11 @@ import {
   readJsonBody,
   stripEncryptedLink,
 } from "../lib/contracts";
-import { createGitWorktree, removeGitWorktree } from "./git-worktree";
+import {
+  createGitWorktree,
+  listGitWorktrees,
+  removeGitWorktree,
+} from "./git-worktree";
 import {
   buildPullRequestTask,
   getWorktreePullRequestStatus,
@@ -165,9 +169,8 @@ async function pathIsDirectory(path: string): Promise<boolean> {
   }
 }
 
-/** Remove locations deleted outside the dashboard and hide their stale sessions. */
+/** Discover repository worktrees, then prune locations deleted outside the dashboard. */
 async function reconcileDashboardLocations(): Promise<void> {
-  const locations = listDashboardLocations();
   const checks = new Map<string, Promise<boolean>>();
   const exists = (path: string) => {
     let check = checks.get(path);
@@ -177,6 +180,38 @@ async function reconcileDashboardLocations(): Promise<void> {
     }
     return check;
   };
+
+  const repositoryLocations = new Map<string, ReturnType<typeof listDashboardLocations>>();
+  for (const location of listDashboardLocations()) {
+    if (location.group.kind !== "repository") continue;
+    const current = repositoryLocations.get(location.group.path) ?? [];
+    current.push(location);
+    repositoryLocations.set(location.group.path, current);
+  }
+  for (const locations of repositoryLocations.values()) {
+    let advertisedPath: string | undefined;
+    for (const location of locations) {
+      if (await exists(location.worktree.path)) {
+        advertisedPath = location.worktree.path;
+        break;
+      }
+    }
+    if (!advertisedPath) continue;
+    const lastSessionStartedAt = locations.reduce(
+      (latest, location) =>
+        Date.parse(location.lastSessionStartedAt) > Date.parse(latest)
+          ? location.lastSessionStartedAt
+          : latest,
+      locations[0]!.lastSessionStartedAt,
+    );
+    for (const worktree of listGitWorktrees(advertisedPath)) {
+      if (await exists(worktree.path)) {
+        registerDashboardLocation(worktree.path, lastSessionStartedAt);
+      }
+    }
+  }
+
+  const locations = listDashboardLocations();
   const availability = await Promise.all(
     locations.map(async (location) => ({
       location,

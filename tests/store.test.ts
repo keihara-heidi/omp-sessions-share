@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   REQUEST_TTL_SECONDS,
   SESSION_TTL_SECONDS,
 } from "../lib/contracts";
 import {
   LOGIN_ATTEMPT_MAX,
+  configureDashboardLocationPersistence,
   consumeLoginAttempt,
   createRequest,
   deactivateSession,
@@ -14,6 +18,7 @@ import {
   getSessionDashboard,
   listRequestsBySession,
   listSessions,
+  removeDashboardLocation,
   resetStoreForTests,
   setNowForTests,
   subscribeSessionChanges,
@@ -75,6 +80,45 @@ describe("daemon store TTL pruning", () => {
         },
       ],
     });
+  });
+
+  test("dashboard locations survive daemon store reloads until explicitly removed", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-location-history-"));
+    const cwd = join(root, "project");
+    const historyPath = join(root, "locations.json");
+    mkdirSync(cwd);
+    try {
+      configureDashboardLocationPersistence(historyPath);
+      const session = upsertSession({
+        id: "persisted-session",
+        title: "Persistent",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+
+      resetStoreForTests();
+      configureDashboardLocationPersistence(historyPath);
+      expect(getSessionDashboard()).toMatchObject({
+        sessions: [],
+        locations: [
+          {
+            group: session.group,
+            worktree: session.worktree,
+            lastSessionStartedAt: session.startedAt,
+          },
+        ],
+      });
+
+      expect(
+        removeDashboardLocation(session.group.path, session.worktree.path),
+      ).toBe(true);
+      resetStoreForTests();
+      configureDashboardLocationPersistence(historyPath);
+      expect(getSessionDashboard().locations).toEqual([]);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("heartbeat refreshes session TTL and keeps stable id + nested metadata", () => {

@@ -7,6 +7,7 @@ import {
   DEFAULT_LISTEN_HOST,
   DEFAULT_LISTEN_PORT,
   DEFAULT_LOCAL_ORIGIN,
+  getDashboardLocationsPath,
   getShareConfigPath,
   listenEndpoint,
   loadShareConfig,
@@ -356,6 +357,9 @@ describe("packaged path resolution fixtures", () => {
     process.env.HOME = outside;
     process.env.PI_CODING_AGENT_DIR = agent;
     expect(getShareConfigPath()).toBe(path.join(agent, "omp-sessions-share.json"));
+    expect(getDashboardLocationsPath()).toBe(
+      path.join(agent, "omp-sessions-share-locations.json"),
+    );
     expect(getShareConfigPath().startsWith(outside)).toBe(false);
   });
 });

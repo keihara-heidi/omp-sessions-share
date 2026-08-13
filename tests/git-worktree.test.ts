@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createGitWorktree,
+  listGitWorktrees,
   removeGitWorktree,
 } from "../daemon/git-worktree";
 
@@ -54,6 +55,22 @@ describe("Git worktrees", () => {
       /^omp-share\/[0-9a-f]{8}$/,
     );
     expect(Bun.file(join(result.path, "README")).size).toBeGreaterThan(0);
+  });
+
+  test("lists primary and linked worktrees with branches", async () => {
+    const repo = initRepo();
+    created.push(repo);
+    const linked = await createGitWorktree([repo]);
+    created.push(linked.path);
+
+    const listed = listGitWorktrees(linked.path);
+    expect(listed.map((worktree) => worktree.path).sort()).toEqual(
+      [realpathSync(repo), realpathSync(linked.path)].sort(),
+    );
+    expect(listed.find((worktree) => worktree.path === realpathSync(repo))?.branch).toBeTruthy();
+    expect(
+      listed.find((worktree) => worktree.path === realpathSync(linked.path))?.branch,
+    ).toMatch(/^omp-share\/[0-9a-f]{8}$/);
   });
 
   test("resolves the repository from a nested advertised path", async () => {
