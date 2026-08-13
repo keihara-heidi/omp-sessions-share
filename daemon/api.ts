@@ -19,6 +19,7 @@ import {
   createRequest,
   deactivateSession,
   decideRequest,
+  exclusiveSessionPid,
   getRequest,
   isSessionInactive,
   listRequestsBySession,
@@ -43,6 +44,7 @@ import {
   stripEncryptedLink,
 } from "../lib/contracts";
 import { createBlankWorktree } from "./sc-worktree";
+import { killSessionProcess } from "./session-process";
 
 
 function err(
@@ -329,7 +331,9 @@ async function handleDeactivateSession(
   const auth = await requireDashboardAuth(req, config);
   if (!isAuthOk(auth)) return noStore(auth);
   if (!isValidId(sessionId)) return err("Invalid sessionId", 400);
+  const pid = exclusiveSessionPid(sessionId);
   if (!deactivateSession(sessionId)) return err("Session not found", 404);
+  if (pid !== undefined) killSessionProcess(pid);
   return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }
 

@@ -48,6 +48,7 @@ type SessionHeartbeat = {
 	title: string;
 	cwd: string;
 	startedAt: string;
+	pid: number;
 };
 
 type ApiOk<T> = { data: T };
@@ -603,6 +604,7 @@ async function pollOnce(rt: SessionRuntime): Promise<void> {
 					title: rt.title,
 					cwd: rt.cwd,
 					startedAt: rt.startedAt,
+					pid: process.pid,
 				} satisfies SessionHeartbeat),
 			});
 			if (!heartbeat.ok) notifyError(rt.ctx, `Share heartbeat failed: ${heartbeat.error}`);

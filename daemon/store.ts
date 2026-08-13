@@ -23,6 +23,8 @@ const inactiveSessionIds = new Set<string>();
 const requests = new Map<string, Timed<JoinRequestResult>>();
 /** sessionId → request ids */
 const sessionRequestIndex = new Map<string, Set<string>>();
+/** Host-only omp pids. Never copied onto SessionSummary. */
+const sessionPids = new Map<string, number>();
 
 const LOGIN_ATTEMPT_WINDOW_MS = 60_000;
 export const LOGIN_ATTEMPT_WINDOW_SECONDS = 60;
@@ -81,6 +83,7 @@ function pruneExpiredSessions(now = nowMs()): boolean {
   for (const [id, entry] of sessions) {
     if (!alive(entry, now)) {
       sessions.delete(id);
+      sessionPids.delete(id);
       changed = true;
     }
   }
@@ -146,6 +149,7 @@ function readSession(id: string, now = nowMs()): SessionSummary | null {
   if (!alive(entry, now)) {
     if (entry) {
       sessions.delete(id);
+      sessionPids.delete(id);
       // Expiry noticed on read — notify only when someone is listening.
       if (sessionListeners.size > 0) notifySessionListeners();
     }
@@ -210,6 +214,7 @@ export function upsertSession(
   };
   const changed = meaningfulChanged(existing, session);
   writeSession(session, now);
+  if (input.pid !== undefined) sessionPids.set(session.id, input.pid);
   if (changed) notifySessionListeners();
   return session;
 }
@@ -227,9 +232,22 @@ export function listSessions(): SessionSummary[] {
 export function deactivateSession(id: string): boolean {
   if (!isValidId(id) || !readSession(id)) return false;
   sessions.delete(id);
+  sessionPids.delete(id);
   inactiveSessionIds.add(id);
   notifySessionListeners();
   return true;
+}
+
+/** Pid to SIGTERM only if no other live session shares it. */
+export function exclusiveSessionPid(id: string): number | undefined {
+  const pid = sessionPids.get(id);
+  if (pid === undefined || !readSession(id)) return undefined;
+  for (const [otherId, otherPid] of sessionPids) {
+    if (otherId !== id && otherPid === pid && readSession(otherId)) {
+      return undefined;
+    }
+  }
+  return pid;
 }
 
 export function isSessionInactive(id: string): boolean {
@@ -350,6 +368,7 @@ export function resetStoreForTests(): void {
   inactiveSessionIds.clear();
   requests.clear();
   sessionRequestIndex.clear();
+  sessionPids.clear();
   loginWindow = undefined;
   nowMs = () => Date.now();
   clearLocationCache();

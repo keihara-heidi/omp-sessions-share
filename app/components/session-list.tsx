@@ -84,7 +84,7 @@ export function SessionButton({
       queryClient.setQueryData<SessionSummary[]>(["sessions"], (sessions) =>
         sessions?.filter((item) => item.id !== session.id),
       );
-      toast.success("Session marked inactive");
+      toast.success("Session removed");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not remove session");
     } finally {

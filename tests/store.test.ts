@@ -7,6 +7,8 @@ import {
   LOGIN_ATTEMPT_MAX,
   consumeLoginAttempt,
   createRequest,
+  deactivateSession,
+  exclusiveSessionPid,
   getRequest,
   getSession,
   listRequestsBySession,
@@ -148,6 +150,43 @@ describe("daemon store TTL pruning", () => {
       expect(s.worktree.name.length).toBeGreaterThan(0);
       expect(s.worktree.path.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("exclusiveSessionPid", () => {
+  test("returns pid only when no other live session shares it", () => {
+    upsertSession({
+      id: "s1",
+      title: "one",
+      cwd: "/tmp/a",
+      startedAt: "2026-08-12T00:00:00.000Z",
+      pid: 4242,
+    });
+    expect(exclusiveSessionPid("s1")).toBe(4242);
+
+    upsertSession({
+      id: "s2",
+      title: "two",
+      cwd: "/tmp/b",
+      startedAt: "2026-08-12T00:00:00.000Z",
+      pid: 4242,
+    });
+    expect(exclusiveSessionPid("s1")).toBeUndefined();
+    expect(exclusiveSessionPid("s2")).toBeUndefined();
+
+    deactivateSession("s2");
+    expect(exclusiveSessionPid("s1")).toBe(4242);
+    expect(listSessions()[0]).not.toHaveProperty("pid");
+  });
+
+  test("missing pid is not killable", () => {
+    upsertSession({
+      id: "s1",
+      title: "one",
+      cwd: "/tmp/a",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    expect(exclusiveSessionPid("s1")).toBeUndefined();
   });
 });
 

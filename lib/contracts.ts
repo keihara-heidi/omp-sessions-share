@@ -238,13 +238,15 @@ export function parseJoinRequestResult(v: unknown): JoinRequestResult | null {
   return { ...base, encryptedLink: o.encryptedLink };
 }
 
-/** Host heartbeat body — lastSeenAt derived server-side. */
+/** Host heartbeat body — lastSeenAt derived server-side. Optional pid is host-only. */
 export type HostSessionHeartbeatInput = {
   id: string;
   title: string;
   cwd: string;
   startedAt: string;
+  pid?: number;
 };
+
 
 export function parseHostSessionHeartbeat(
   v: unknown,
@@ -255,11 +257,20 @@ export function parseHostSessionHeartbeat(
   if (!isNonEmptyString(o.title, 256)) return null;
   if (!isNonEmptyString(o.cwd, 1024)) return null;
   if (!isIsoTimestamp(o.startedAt)) return null;
+  const rawPid = o.pid;
+  const pid =
+    typeof rawPid === "number" &&
+    Number.isInteger(rawPid) &&
+    rawPid >= 2 &&
+    rawPid <= 0x7fffffff
+      ? rawPid
+      : undefined;
   return {
     id: o.id,
     title: o.title,
     cwd: o.cwd,
     startedAt: o.startedAt,
+    ...(pid !== undefined ? { pid } : {}),
   };
 }
 

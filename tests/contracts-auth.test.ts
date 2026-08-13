@@ -81,6 +81,30 @@ describe("contracts validators", () => {
     expect(
       parseHostSessionHeartbeat({
         id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        pid: 4242,
+      }),
+    ).toEqual({
+      id: "s1",
+      title: "t",
+      cwd: "/tmp",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      pid: 4242,
+    });
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        pid: 1,
+      })?.pid,
+    ).toBeUndefined();
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
         cwd: "/tmp",
         startedAt: "2026-01-01T00:00:00.000Z",
       }),
