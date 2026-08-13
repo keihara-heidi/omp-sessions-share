@@ -16,7 +16,7 @@
  * Local runtime: heartbeats hit loopback daemon with Bearer host token. Native host always uses
  * ws://127.0.0.1:7466; password-gated guest links wrap config.publicOrigin via https://my.omp.sh/#…
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -65,6 +65,10 @@ type CollabHostLike = {
 type CollabHostCtor = {
 	prototype: CollabHostLike;
 	new (...args: never[]): CollabHostLike;
+};
+
+type CollabQrCodeCtor = {
+	prototype: { render(width: number): string[] };
 };
 
 type BridgeState = {
@@ -373,6 +377,48 @@ async function tryPatchCollabHostPrototype(pkgRoot: string): Promise<boolean> {
 	}
 }
 
+const QR_BUNDLE_PATCH_MARKER = "omp-sessions-share:no-collab-qr";
+
+/** Patch the bundled CLI used by global OMP launchers; takes effect on the next process. */
+export function disableBundledCollabQrCode(pkgRoot: string): boolean {
+	const cliPath = path.join(pkgRoot, "dist/cli.js");
+	try {
+		const source = readFileSync(cliPath, "utf8");
+		if (source.includes(QR_BUNDLE_PATCH_MARKER)) return true;
+		const errorAt = source.indexOf("Failed to render collab QR code");
+		if (errorAt < 0) return false;
+		const windowStart = Math.max(0, errorAt - 500);
+		const prefix = source.slice(windowStart, errorAt);
+		const calls = [
+			...prefix.matchAll(/[A-Za-z_$][\w$]*\.present\(\[new [A-Za-z_$][\w$]*\(1\),new [A-Za-z_$][\w$]*\([^)]+\)\]\)/g),
+		];
+		if (calls.length !== 1 || calls[0].index === undefined) return false;
+		const start = windowStart + calls[0].index;
+		const end = start + calls[0][0].length;
+		const patched = `${source.slice(0, start)}"${QR_BUNDLE_PATCH_MARKER}"${source.slice(end)}`;
+		writeFileSync(cliPath, patched);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Disable the native QR transcript component while retaining the link status line. */
+export async function disableCollabQrCode(pkgRoot: string): Promise<boolean> {
+	const qrPath = path.join(pkgRoot, "src/slash-commands/helpers/collab-qrcode.ts");
+	if (!existsSync(qrPath)) return false;
+	try {
+		// Runtime-selected package root; a static import would bind this plugin's dependency copy.
+		const mod = (await import(pathToFileURL(qrPath).href)) as { CollabQrCodeComponent?: CollabQrCodeCtor };
+		const Ctor = mod.CollabQrCodeComponent;
+		if (!Ctor?.prototype?.render) return false;
+		Ctor.prototype.render = () => [];
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 async function installCollabBridge(): Promise<{ ok: boolean; reason?: string }> {
 	const pkgRoot = findCodingAgentRoot();
 	const version = readPackageVersion(pkgRoot);
@@ -386,7 +432,11 @@ async function installCollabBridge(): Promise<{ ok: boolean; reason?: string }> 
 	}
 
 	installStdoutCapture();
-	if (pkgRoot) await tryPatchCollabHostPrototype(pkgRoot);
+	if (pkgRoot) {
+		disableBundledCollabQrCode(pkgRoot);
+		await disableCollabQrCode(pkgRoot);
+		await tryPatchCollabHostPrototype(pkgRoot);
+	}
 	// Bundle path relies on OSC-8 capture after native /collab prints the deep link.
 	return { ok: true };
 }
