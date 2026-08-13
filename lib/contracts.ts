@@ -257,6 +257,15 @@ export function parseHostSessionHeartbeat(
   };
 }
 
+/** Browser request to start a local OMP session in a live worktree. */
+export type LaunchSessionInput = { worktreePath: string };
+
+export function parseLaunchSessionInput(v: unknown): LaunchSessionInput | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const { worktreePath } = v as Record<string, unknown>;
+  return isNonEmptyString(worktreePath, 1024) ? { worktreePath } : null;
+}
+
 /** Browser create-request body. */
 export type CreateJoinRequestInput = {
   deviceName: string;

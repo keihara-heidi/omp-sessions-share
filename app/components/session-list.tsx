@@ -1,6 +1,9 @@
 "use client";
 
-import { FolderCode, MonitorOff, SearchX } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { CircleMinus, FolderCode, LoaderCircle, MonitorOff, SearchX } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -11,6 +14,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { api } from "@/app/components/api";
 import type { SessionSummary } from "@/lib/contracts";
 
 /** Shorten a home-rooted absolute path for display. */
@@ -96,31 +100,68 @@ export function SessionButton({
 }) {
   const stale = now - Date.parse(session.lastSeenAt) > 15_000;
   const opening = openingId === session.id;
+  const [deactivating, setDeactivating] = useState(false);
+  const queryClient = useQueryClient();
+
+  async function deactivate() {
+    setDeactivating(true);
+    try {
+      await api<{ ok: true }>(`/api/sessions/${encodeURIComponent(session.id)}/deactivate`, {
+        method: "POST",
+      });
+      queryClient.setQueryData<SessionSummary[]>(["sessions"], (sessions) =>
+        sessions?.filter((item) => item.id !== session.id),
+      );
+      toast.success("Session marked inactive");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not remove session");
+    } finally {
+      setDeactivating(false);
+    }
+  }
   return (
-    <button
-      type="button"
-      className="flex w-full touch-manipulation flex-col gap-1.5 rounded-lg border bg-card p-4 text-left text-card-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
-      onClick={() => onSelect(session)}
-      disabled={openingId !== null}
-      aria-busy={opening}
-    >
-      <span className="flex w-full items-center gap-2 text-sm font-medium">
-        <span
-          aria-hidden
-          data-stale={stale || undefined}
-          className="size-2 shrink-0 rounded-full bg-emerald-500 ring-[3px] ring-emerald-500/25 data-stale:bg-muted-foreground data-stale:ring-0"
-        />
-        <span className="truncate">{session.title}</span>
-      </span>
-      <span className="flex w-full items-center gap-1.5 truncate font-mono text-xs text-muted-foreground">
-        <FolderCode aria-hidden className="size-3.5 shrink-0" />
-        <span className="truncate" dir="rtl">
-          <bdi>{tildify(session.cwd)}</bdi>
+    <div className="relative">
+      <button
+        type="button"
+        className="flex w-full touch-manipulation flex-col gap-1.5 rounded-lg border bg-card p-4 pr-12 text-left text-card-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
+        onClick={() => onSelect(session)}
+        disabled={openingId !== null || deactivating}
+        aria-busy={opening}
+      >
+        <span className="flex w-full items-center gap-2 text-sm font-medium">
+          <span
+            aria-hidden
+            data-stale={stale || undefined}
+            className="size-2 shrink-0 rounded-full bg-emerald-500 ring-[3px] ring-emerald-500/25 data-stale:bg-muted-foreground data-stale:ring-0"
+          />
+          <span className="truncate">{session.title}</span>
         </span>
-      </span>
-      <span className="text-xs text-muted-foreground" aria-live="polite">
-        {opening ? "Opening…" : freshness(session.lastSeenAt, now)}
-      </span>
-    </button>
+        <span className="flex w-full items-center gap-1.5 truncate font-mono text-xs text-muted-foreground">
+          <FolderCode aria-hidden className="size-3.5 shrink-0" />
+          <span className="truncate" dir="rtl">
+            <bdi>{tildify(session.cwd)}</bdi>
+          </span>
+        </span>
+        <span className="text-xs text-muted-foreground" aria-live="polite">
+          {opening ? "Opening…" : freshness(session.lastSeenAt, now)}
+        </span>
+      </button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="absolute right-2 top-2 text-muted-foreground hover:text-destructive"
+        onClick={deactivate}
+        disabled={deactivating || openingId !== null}
+        aria-label={`Remove ${session.title} from active sessions`}
+        title="Mark inactive"
+      >
+        {deactivating ? (
+          <LoaderCircle aria-hidden className="animate-spin" />
+        ) : (
+          <CircleMinus aria-hidden />
+        )}
+      </Button>
+    </div>
   );
 }

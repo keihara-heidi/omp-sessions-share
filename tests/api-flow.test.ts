@@ -122,6 +122,87 @@ describe("local daemon auth gates", () => {
       data: { id: "session_1", title: "t" },
     });
   });
+
+  test("starts OMP only in a live worktree", async () => {
+    const session = upsertSession({
+      id: "launch_source",
+      title: "Existing session",
+      cwd: "/tmp/phone-launch",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const body = { worktreePath: session.worktree.path };
+
+    const unauthorized = await api(
+      jsonRequest("http://local/api/sessions/launch", body),
+    );
+    expect(unauthorized.status).toBe(401);
+
+    const cookie = await loginCookie();
+    const launchedPaths: string[] = [];
+    const launched = await handleApi(
+      jsonRequest("http://local/api/sessions/launch", body, { cookie }),
+      config,
+      "/api/sessions/launch",
+      async (worktreePath) => {
+        launchedPaths.push(worktreePath);
+      },
+    );
+    expect(launched?.status).toBe(200);
+    expect(await launched?.json()).toEqual({ data: { ok: true } });
+    expect(launchedPaths).toEqual([session.worktree.path]);
+
+    const unknown = await handleApi(
+      jsonRequest(
+        "http://local/api/sessions/launch",
+        { worktreePath: "/tmp/not-advertised" },
+        { cookie },
+      ),
+      config,
+      "/api/sessions/launch",
+      async () => {
+        throw new Error("must not launch");
+      },
+    );
+    expect(unknown?.status).toBe(404);
+  });
+
+  test("deactivates a session without allowing heartbeats to restore it", async () => {
+    const heartbeatBody = {
+      id: "session_inactive",
+      title: "Remove me",
+      cwd: "/tmp/inactive",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    };
+    await api(
+      jsonRequest("http://local/api/host/sessions", heartbeatBody, hostHeaders),
+    );
+
+    const path = "/api/sessions/session_inactive/deactivate";
+    expect((await api(new Request(`http://local${path}`, { method: "POST" }))).status).toBe(401);
+    const cookie = await loginCookie();
+    const removed = await api(
+      new Request(`http://local${path}`, { method: "POST", headers: { cookie } }),
+    );
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({ data: { ok: true } });
+
+    const repeatedHeartbeat = await api(
+      jsonRequest("http://local/api/host/sessions", heartbeatBody, hostHeaders),
+    );
+    expect(await repeatedHeartbeat.json()).toEqual({ data: { inactive: true } });
+    const sessions = await api(
+      new Request("http://local/api/sessions", { headers: { cookie } }),
+    );
+    expect(await sessions.json()).toEqual({ data: [] });
+
+    const requests = await api(
+      new Request("http://local/api/host/requests?sessionId=session_inactive", {
+        headers: { authorization: `Bearer ${config.hostToken}` },
+      }),
+    );
+    expect(requests.status).toBe(200);
+    expect(await requests.json()).toEqual({ data: [] });
+  });
 });
 
 describe("approved session link flow", () => {

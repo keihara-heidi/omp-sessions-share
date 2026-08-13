@@ -1,8 +1,12 @@
 "use client";
 
-import { ChevronRight, Folder, FolderGit2, GitBranch } from "lucide-react";
+import { ChevronRight, Folder, FolderGit2, GitBranch, LoaderCircle, Play } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import type { SessionSummary } from "@/lib/contracts";
 import type { SessionGroup, WorktreeGroup } from "@/app/components/group-sessions";
+import { api, postJson } from "@/app/components/api";
+import { Button } from "@/components/ui/button";
 import { SessionButton, tildify } from "@/app/components/session-list";
 
 function WorktreeSection({
@@ -18,6 +22,23 @@ function WorktreeSection({
   openingId: string | null;
   onSelect: (session: SessionSummary) => void;
 }) {
+  const [launching, setLaunching] = useState(false);
+
+  async function launch() {
+    setLaunching(true);
+    try {
+      await api<{ ok: true }>(
+        "/api/sessions/launch",
+        postJson({ worktreePath: worktree.path }),
+      );
+      toast.success(`Started OMP in ${worktree.name}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not start session");
+    } finally {
+      setLaunching(false);
+    }
+  }
+
   return (
     <section aria-label={`Worktree ${worktree.name}`}>
       <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -28,6 +49,22 @@ function WorktreeSection({
             {tildify(worktree.path)}
           </span>
         )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="ml-auto shrink-0"
+          onClick={launch}
+          disabled={launching}
+          aria-label={`Start OMP in ${worktree.name}`}
+        >
+          {launching ? (
+            <LoaderCircle aria-hidden className="animate-spin" />
+          ) : (
+            <Play aria-hidden />
+          )}
+          {launching ? "Starting…" : "Start"}
+        </Button>
       </h3>
       <ul className="flex list-none flex-col gap-2 p-0">
         {worktree.sessions.map((session) => (
@@ -65,7 +102,7 @@ export function SessionGroups({
         );
         const Icon = group.kind === "repository" ? FolderGit2 : Folder;
         return (
-          <details key={group.path} className="group" open>
+          <details key={group.path} className="group">
             <summary className="mb-3 flex cursor-pointer list-none items-start gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
               <ChevronRight
                 aria-hidden

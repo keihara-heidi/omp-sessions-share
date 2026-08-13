@@ -35,6 +35,8 @@ No Vercel, Redis, cloud database, or central service.
 2. Run `/share` to display the tailnet dashboard URL and password. Run `/collab` to display the active live-session link.
 3. On a tailnet-connected phone, open the URL and enter the password.
 4. Select a live session.
+5. To start another session, expand a folder or repository and tap **Start** beside a worktree. The Mac opens a Terminal running OMP in that worktree.
+6. Tap the remove button on a session to mark that live session inactive. This only removes it from the dashboard; its OMP history remains on the Mac.
 
 Dashboard hierarchy:
 
@@ -47,6 +49,8 @@ Folder / Repository
 Search matches folder/repository names and paths, worktrees, session titles, and session directories. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
 
 Dashboard session changes arrive through an authenticated live event stream; no phone reload needed. A 15-second poll remains as a disconnect fallback.
+
+Groups start collapsed. Launching is limited to worktrees advertised by a current live session.
 
 The browser receives the collab link encrypted to a non-extractable RSA key generated on that device. The relay sees only OMP's existing end-to-end encrypted collab frames.
 

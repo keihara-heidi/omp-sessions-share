@@ -1,4 +1,8 @@
 /** /api/* handlers for the local single-tenant daemon. */
+import { stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 
 import type { ShareConfig } from "../shared/config";
 import {
@@ -13,8 +17,10 @@ import {
   LOGIN_ATTEMPT_WINDOW_SECONDS,
   consumeLoginAttempt,
   createRequest,
+  deactivateSession,
   decideRequest,
   getRequest,
+  isSessionInactive,
   listRequestsBySession,
   listSessions,
   subscribeSessionChanges,
@@ -29,6 +35,7 @@ import {
   jsonError,
   jsonOk,
   parseCreateJoinRequestInput,
+  parseLaunchSessionInput,
   parseHostSessionHeartbeat,
   parseRequestDecision,
   readJsonBody,
@@ -220,6 +227,68 @@ async function handleEvents(
 }
 
 
+type LaunchOmp = (worktreePath: string) => Promise<void>;
+
+async function launchOmpInTerminal(worktreePath: string): Promise<void> {
+  if (!(await stat(worktreePath)).isDirectory()) {
+    throw new Error("worktree is not a directory");
+  }
+  const ompPath = join(homedir(), ".local", "bin", "omp");
+  const proc = Bun.spawn(
+    [
+      "/usr/bin/osascript",
+      "-e",
+      "on run argv",
+      "-e",
+      'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv',
+      "-e",
+      "end run",
+      worktreePath,
+      ompPath,
+    ],
+    { stdout: "ignore", stderr: "ignore" },
+  );
+  if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
+}
+
+async function handleLaunchSession(
+  req: Request,
+  config: ShareConfig,
+  launchOmp: LaunchOmp,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const input = parseLaunchSessionInput(parsedBody.value);
+  if (!input) return err("Invalid body", 400);
+  if (!listSessions().some((session) => session.worktree.path === input.worktreePath)) {
+    return err("Worktree not found", 404);
+  }
+
+  try {
+    await launchOmp(input.worktreePath);
+    return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return err("Could not start session", 500);
+  }
+}
+
+async function handleDeactivateSession(
+  req: Request,
+  config: ShareConfig,
+  sessionId: string,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isValidId(sessionId)) return err("Invalid sessionId", 400);
+  if (!deactivateSession(sessionId)) return err("Session not found", 404);
+  return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+}
+
 async function handleCreateRequest(
   req: Request,
   config: ShareConfig,
@@ -291,6 +360,9 @@ async function handleHostHeartbeat(
   if (!parsedBody.ok) return err(parsedBody.error, 400);
   const input = parseHostSessionHeartbeat(parsedBody.value);
   if (!input) return err("Invalid body", 400);
+  if (isSessionInactive(input.id)) {
+    return jsonOk({ inactive: true }, { headers: { "Cache-Control": "no-store" } });
+  }
 
   try {
     const session = upsertSession(input);
@@ -305,6 +377,9 @@ function handleHostListRequests(req: Request, config: ShareConfig): Response {
   if (!isAuthOk(auth)) return noStore(auth);
   const sessionId = new URL(req.url).searchParams.get("sessionId");
   if (!isValidId(sessionId)) return err("Invalid sessionId", 400);
+  if (isSessionInactive(sessionId)) {
+    return jsonOk([], { headers: { "Cache-Control": "no-store" } });
+  }
   const requests = listRequestsBySession(sessionId);
   if (requests === null) return err("Session not found", 404);
   return jsonOk(requests, { headers: { "Cache-Control": "no-store" } });
@@ -370,6 +445,7 @@ export async function handleApi(
   req: Request,
   config: ShareConfig,
   pathname: string,
+  launchOmp: LaunchOmp = launchOmpInTerminal,
 ): Promise<Response | null> {
   if (!pathname.startsWith("/api/")) return null;
   const method = req.method.toUpperCase();
@@ -386,11 +462,20 @@ export async function handleApi(
   if (pathname === "/api/sessions" && method === "GET") {
     return handleListSessions(req, config);
   }
+  if (pathname === "/api/sessions/launch" && method === "POST") {
+    return handleLaunchSession(req, config, launchOmp);
+  }
   if (pathname === "/api/events" && method === "GET") {
     return handleEvents(req, config);
   }
 
 
+  {
+    const m = /^\/api\/sessions\/([^/]+)\/deactivate$/.exec(pathname);
+    if (m && method === "POST") {
+      return handleDeactivateSession(req, config, decodeURIComponent(m[1]!));
+    }
+  }
   {
     const m = /^\/api\/sessions\/([^/]+)\/requests$/.exec(pathname);
     if (m && method === "POST") {

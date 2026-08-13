@@ -19,6 +19,7 @@ import { clearLocationCache, resolveSessionLocation } from "./location";
 type Timed<T> = { value: T; expiresAt: number };
 
 const sessions = new Map<string, Timed<SessionSummary>>();
+const inactiveSessionIds = new Set<string>();
 const requests = new Map<string, Timed<JoinRequestResult>>();
 /** sessionId → request ids */
 const sessionRequestIndex = new Map<string, Set<string>>();
@@ -217,6 +218,19 @@ export function listSessions(): SessionSummary[] {
   return sortedLiveSessions();
 }
 
+/** Hide a live session and suppress its future heartbeats until daemon restart. */
+export function deactivateSession(id: string): boolean {
+  if (!isValidId(id) || !readSession(id)) return false;
+  sessions.delete(id);
+  inactiveSessionIds.add(id);
+  notifySessionListeners();
+  return true;
+}
+
+export function isSessionInactive(id: string): boolean {
+  return isValidId(id) && inactiveSessionIds.has(id);
+}
+
 export type CreateRequestArgs = CreateJoinRequestInput & { sessionId: string };
 
 export function createRequest(input: CreateRequestArgs): JoinRequest {
@@ -328,6 +342,7 @@ export function consumeLoginAttempt(): boolean {
 /** Test helper — wipe all maps and restore clock. */
 export function resetStoreForTests(): void {
   sessions.clear();
+  inactiveSessionIds.clear();
   requests.clear();
   sessionRequestIndex.clear();
   loginWindow = undefined;
