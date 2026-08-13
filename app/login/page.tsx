@@ -3,17 +3,20 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  TypographyError,
+  TypographyH1,
+  TypographyMuted,
+} from "@/components/ui/typography";
+import { LoginForm, LoginScreen, SubmitButton } from "@/components/ds/page";
+import {
+  LoginCard,
+  LoginCardBody,
+  LoginCardHeader,
+} from "@/components/ds/session";
 import { api, ApiError, postJson } from "@/app/components/api";
 
 export default function LoginPage() {
@@ -43,21 +46,20 @@ export default function LoginPage() {
   });
 
   return (
-    <main className="grid min-h-dvh place-items-center p-4">
-      <Card className="w-full max-w-sm border-border bg-card">
-        <CardHeader>
-          <CardTitle className="text-base font-semibold">OMP Sessions</CardTitle>
-          <CardDescription className="text-[11px] text-dim">
+    <LoginScreen>
+      <LoginCard>
+        <LoginCardHeader>
+          <TypographyH1>OMP Sessions</TypographyH1>
+          <TypographyMuted>
             Enter the dashboard password shown during setup.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
+          </TypographyMuted>
+        </LoginCardHeader>
+        <LoginCardBody>
+          <LoginForm
             onSubmit={(e) => {
               e.preventDefault();
               form.handleSubmit();
             }}
-            className="flex flex-col gap-4"
           >
             <form.Field
               name="password"
@@ -89,26 +91,19 @@ export default function LoginPage() {
               )}
             </form.Field>
             {serverError && (
-              <p role="alert" className="text-sm text-destructive">
-                {serverError}
-              </p>
+              <TypographyError role="alert">{serverError}</TypographyError>
             )}
             <form.Subscribe selector={(s) => s.isSubmitting}>
               {(isSubmitting) => (
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full"
-                  disabled={isSubmitting}
-                >
+                <SubmitButton disabled={isSubmitting}>
                   {isSubmitting && <Spinner />}
                   {isSubmitting ? "Signing in…" : "Sign in"}
-                </Button>
+                </SubmitButton>
               )}
             </form.Subscribe>
-          </form>
-        </CardContent>
-      </Card>
-    </main>
+          </LoginForm>
+        </LoginCardBody>
+      </LoginCard>
+    </LoginScreen>
   );
 }

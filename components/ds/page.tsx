@@ -1,4 +1,5 @@
 /** Page chrome. Spacing lives here — callers pass no className. */
+import { Button } from "@/components/ui/button";
 import type { ComponentProps, ReactNode } from "react";
 import { Search } from "lucide-react";
 import {
@@ -78,4 +79,15 @@ export function LoginScreen(props: NoClass<"main">) {
 
 export function LoginForm(props: NoClass<"form">) {
   return <form className="flex flex-col gap-4" {...props} />;
+}
+
+export function SubmitButton({
+  children,
+  ...props
+}: Omit<ComponentProps<typeof Button>, "className" | "size" | "type">) {
+  return (
+    <Button type="submit" size="lg" className="w-full" {...props}>
+      {children}
+    </Button>
+  );
 }
