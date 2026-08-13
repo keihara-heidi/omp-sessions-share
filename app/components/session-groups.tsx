@@ -1,6 +1,6 @@
 "use client";
 
-import { Folder, FolderGit2, GitBranch } from "lucide-react";
+import { ChevronRight, Folder, FolderGit2, GitBranch } from "lucide-react";
 import type { SessionSummary } from "@/lib/contracts";
 import type { SessionGroup, WorktreeGroup } from "@/app/components/group-sessions";
 import { SessionButton, tildify } from "@/app/components/session-list";
@@ -65,23 +65,29 @@ export function SessionGroups({
         );
         const Icon = group.kind === "repository" ? FolderGit2 : Folder;
         return (
-          <section key={group.path} aria-label={group.name}>
-            <header className="mb-3">
-              <h2 className="flex items-baseline gap-2 text-sm font-semibold tracking-tight">
-                <Icon
-                  aria-hidden
-                  className="size-4 shrink-0 self-center text-muted-foreground"
-                />
-                <span className="truncate">{group.name}</span>
-                <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground">
-                  {count} {count === 1 ? "session" : "sessions"}
+          <details key={group.path} className="group" open>
+            <summary className="mb-3 flex cursor-pointer list-none items-start gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              <ChevronRight
+                aria-hidden
+                className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline gap-2 text-sm font-semibold tracking-tight">
+                  <Icon
+                    aria-hidden
+                    className="size-4 shrink-0 self-center text-muted-foreground"
+                  />
+                  <span className="truncate">{group.name}</span>
+                  <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground">
+                    {count} {count === 1 ? "session" : "sessions"}
+                  </span>
                 </span>
-              </h2>
-              <p className="mt-0.5 truncate pl-6 font-mono text-[11px] text-muted-foreground/70">
-                {tildify(group.path)}
-              </p>
-            </header>
-            <div className="flex flex-col gap-4 border-l pl-3 sm:pl-4">
+                <span className="mt-0.5 block truncate pl-6 font-mono text-[11px] text-muted-foreground/70">
+                  {tildify(group.path)}
+                </span>
+              </span>
+            </summary>
+            <div className="ml-2 flex flex-col gap-4 border-l pl-3 sm:pl-4">
               {group.worktrees.map((worktree) => (
                 <WorktreeSection
                   key={worktree.path}
@@ -93,7 +99,7 @@ export function SessionGroups({
                 />
               ))}
             </div>
-          </section>
+          </details>
         );
       })}
     </div>
