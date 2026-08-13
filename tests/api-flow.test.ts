@@ -260,6 +260,58 @@ describe("local daemon auth gates", () => {
     }
   });
 
+  test("prunes a worktree deleted outside the dashboard", async () => {
+    const repo = initGitRepo();
+    const linked = await createGitWorktree([repo]);
+    try {
+      const session = upsertSession({
+        id: "externally_deleted_worktree",
+        title: "Deleted outside dashboard",
+        cwd: linked.path,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      expect(getSessionDashboard().locations).toHaveLength(1);
+      rmSync(linked.path, { recursive: true, force: true });
+
+      const cookie = await loginCookie();
+      const res = await api(
+        new Request("http://local/api/dashboard", { headers: { cookie } }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        data: { sessions: [], locations: [] },
+      });
+      expect(listSessions()).toEqual([]);
+      expect(getSessionDashboard().locations).toEqual([]);
+      expect(session.worktree.path).toBe(linked.path);
+    } finally {
+      rmSync(linked.path, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("prunes a folder deleted outside the dashboard", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "omp-api-folder-"));
+    upsertSession({
+      id: "externally_deleted_folder",
+      title: "Deleted folder",
+      cwd: folder,
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    rmSync(folder, { recursive: true, force: true });
+
+    const cookie = await loginCookie();
+    const res = await api(
+      new Request("http://local/api/dashboard", { headers: { cookie } }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: { sessions: [], locations: [] },
+    });
+  });
+
   test("deletes a remembered linked worktree with no live sessions", async () => {
     const repo = initGitRepo();
     const linked = await createGitWorktree([repo]);
@@ -347,30 +399,35 @@ describe("local daemon auth gates", () => {
   });
 
   test("returns 400 when worktree create is not a git repository", async () => {
-    const session = upsertSession({
-      id: "nogit_source",
-      title: "Folder session",
-      cwd: "/tmp/phone-nogit",
-      startedAt: "2026-08-12T00:00:00.000Z",
-    });
-    const cookie = await loginCookie();
-    const res = await handleApi(
-      jsonRequest(
-        "http://local/api/sessions/worktrees",
-        { groupPath: session.group.path },
-        { cookie },
-      ),
-      config,
-      "/api/sessions/worktrees",
-      async () => {
-        throw new Error("must not launch");
-      },
-      async () => {
-        throw new Error("Not a git repository");
-      },
-    );
-    expect(res?.status).toBe(400);
-    expect(await res?.json()).toEqual({ error: "Not a git repository" });
+    const folder = mkdtempSync(join(tmpdir(), "omp-api-nogit-"));
+    try {
+      const session = upsertSession({
+        id: "nogit_source",
+        title: "Folder session",
+        cwd: folder,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      const cookie = await loginCookie();
+      const res = await handleApi(
+        jsonRequest(
+          "http://local/api/sessions/worktrees",
+          { groupPath: session.group.path },
+          { cookie },
+        ),
+        config,
+        "/api/sessions/worktrees",
+        async () => {
+          throw new Error("must not launch");
+        },
+        async () => {
+          throw new Error("Not a git repository");
+        },
+      );
+      expect(res?.status).toBe(400);
+      expect(await res?.json()).toEqual({ error: "Not a git repository" });
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   test("deactivates a session without allowing heartbeats to restore it", async () => {
