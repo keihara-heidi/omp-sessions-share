@@ -91,3 +91,19 @@ export function SubmitButton({
     </Button>
   );
 }
+
+export function LoginCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="w-full max-w-sm rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10">
+      {children}
+    </div>
+  );
+}
+
+export function LoginCardHeader({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-1 px-4">{children}</div>;
+}
+
+export function LoginCardBody({ children }: { children: ReactNode }) {
+  return <div className="px-4 pt-4">{children}</div>;
+}

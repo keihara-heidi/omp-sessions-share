@@ -1,4 +1,5 @@
 /** Feedback surfaces. Spacing/color live here — callers pass no className. */
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ReactNode } from "react";
 import { WifiOff } from "lucide-react";
 import {
@@ -79,5 +80,18 @@ export function DashedEmpty({
       </EmptyHeader>
       {action ? <EmptyContent>{action}</EmptyContent> : null}
     </Empty>
+  );
+}
+
+export function SessionSkeletonList() {
+  return (
+    <div className="flex flex-col gap-3" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="rounded-lg border p-4">
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="mt-2 h-4 w-1/2" />
+        </div>
+      ))}
+    </div>
   );
 }

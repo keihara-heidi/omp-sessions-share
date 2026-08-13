@@ -11,12 +11,14 @@ import {
   TypographyH1,
   TypographyMuted,
 } from "@/components/ui/typography";
-import { LoginForm, LoginScreen, SubmitButton } from "@/components/ds/page";
 import {
   LoginCard,
   LoginCardBody,
   LoginCardHeader,
-} from "@/components/ds/session";
+  LoginForm,
+  LoginScreen,
+  SubmitButton,
+} from "@/components/ds/page";
 import { api, ApiError, postJson } from "@/app/components/api";
 
 export default function LoginPage() {

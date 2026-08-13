@@ -100,7 +100,7 @@ export default function DashboardPage() {
             void sessions.refetch();
           }}
         >
-          The server isn't responding. Check your connection.
+          The server is not responding. Check your connection.
         </FailAlert>
       )}
 

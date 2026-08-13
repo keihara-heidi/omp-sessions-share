@@ -5,8 +5,8 @@ import { MonitorOff, SearchX } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { DashedEmpty } from "@/components/ds/feedback";
-import { SessionCard, SessionSkeletonList } from "@/components/ds/session";
+import { DashedEmpty, SessionSkeletonList } from "@/components/ds/feedback";
+import { SessionCard } from "@/components/ds/session-card";
 import { api } from "@/app/components/api";
 import type { SessionSummary } from "@/lib/contracts";
 
