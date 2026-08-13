@@ -166,6 +166,87 @@ describe("local daemon auth gates", () => {
     expect(unknown?.status).toBe(404);
   });
 
+  test("creates a blank worktree only for a live repository group", async () => {
+    const session = upsertSession({
+      id: "create_source",
+      title: "Existing session",
+      cwd: "/tmp/phone-create",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const body = { groupPath: session.group.path };
+
+    const unauthorized = await api(
+      jsonRequest("http://local/api/sessions/worktrees", body),
+    );
+    expect(unauthorized.status).toBe(401);
+
+    const cookie = await loginCookie();
+    const createdFor: string[][] = [];
+    const launchedPaths: string[] = [];
+    const created = await handleApi(
+      jsonRequest("http://local/api/sessions/worktrees", body, { cookie }),
+      config,
+      "/api/sessions/worktrees",
+      async (worktreePath) => {
+        launchedPaths.push(worktreePath);
+      },
+      async (advertisedPaths) => {
+        createdFor.push(advertisedPaths);
+        return { path: "/tmp/new-worktree" };
+      },
+    );
+    expect(created?.status).toBe(200);
+    expect(await created?.json()).toEqual({
+      data: { ok: true, path: "/tmp/new-worktree" },
+    });
+    expect(createdFor).toEqual([[session.group.path, session.worktree.path].filter((path, i, all) => all.indexOf(path) === i)]);
+    expect(launchedPaths).toEqual(["/tmp/new-worktree"]);
+
+    const unknown = await handleApi(
+      jsonRequest(
+        "http://local/api/sessions/worktrees",
+        { groupPath: "/tmp/not-advertised" },
+        { cookie },
+      ),
+      config,
+      "/api/sessions/worktrees",
+      async () => {
+        throw new Error("must not launch");
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+    );
+    expect(unknown?.status).toBe(404);
+  });
+
+  test("returns 400 when worktree create is not a git repository", async () => {
+    const session = upsertSession({
+      id: "nogit_source",
+      title: "Folder session",
+      cwd: "/tmp/phone-nogit",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const cookie = await loginCookie();
+    const res = await handleApi(
+      jsonRequest(
+        "http://local/api/sessions/worktrees",
+        { groupPath: session.group.path },
+        { cookie },
+      ),
+      config,
+      "/api/sessions/worktrees",
+      async () => {
+        throw new Error("must not launch");
+      },
+      async () => {
+        throw new Error("Not a git repository");
+      },
+    );
+    expect(res?.status).toBe(400);
+    expect(await res?.json()).toEqual({ error: "Not a git repository" });
+  });
+
   test("deactivates a session without allowing heartbeats to restore it", async () => {
     const heartbeatBody = {
       id: "session_inactive",

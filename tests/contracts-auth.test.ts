@@ -4,12 +4,13 @@ import {
   isValidId,
   isValidPublicKeyJwk,
   parseCreateJoinRequestInput,
+  parseCreateWorktreeInput,
   parseHostSessionHeartbeat,
   parseRequestDecision,
+  parseSessionWorktree,
   parseSessionGroup,
   parseSessionSummary,
   type SessionSummary,
-  parseSessionWorktree,
   readJsonBody,
 } from "../lib/contracts";
 import {
@@ -99,6 +100,10 @@ describe("contracts validators", () => {
       worktree: { name: "project", path: "/tmp/project" },
     };
     expect(parseSessionSummary(validSummary)).toEqual(validSummary);
+    expect(
+      parseSessionWorktree({ name: "wt", path: "/tmp/wt", branch: "feat/x" }),
+    ).toEqual({ name: "wt", path: "/tmp/wt", branch: "feat/x" });
+    expect(parseSessionWorktree({ name: "wt", path: "/tmp/wt", branch: "" })).toBeNull();
 
     // Missing nested metadata is invalid
     expect(
@@ -114,6 +119,10 @@ describe("contracts validators", () => {
     expect(
       parseCreateJoinRequestInput({ deviceName: "phone", publicKeyJwk: pubJwk }),
     ).not.toBeNull();
+    expect(parseCreateWorktreeInput({ groupPath: "/tmp/repo" })).toEqual({
+      groupPath: "/tmp/repo",
+    });
+    expect(parseCreateWorktreeInput({ groupPath: "" })).toBeNull();
     expect(
       parseCreateJoinRequestInput({
         deviceName: "phone",

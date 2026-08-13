@@ -11,6 +11,7 @@ export type SessionGroup = {
 export type SessionWorktree = {
   name: string;
   path: string;
+  branch?: string;
 };
 
 export type SessionSummary = {
@@ -178,7 +179,12 @@ export function parseSessionWorktree(v: unknown): SessionWorktree | null {
   const o = v as Record<string, unknown>;
   if (!isNonEmptyString(o.name, 512)) return null;
   if (!isNonEmptyString(o.path, 1024)) return null;
-  return { name: o.name, path: o.path };
+  if (o.branch != null && !isNonEmptyString(o.branch, 256)) return null;
+  return {
+    name: o.name,
+    path: o.path,
+    ...(typeof o.branch === "string" ? { branch: o.branch } : {}),
+  };
 }
 
 export function parseSessionSummary(v: unknown): SessionSummary | null {
@@ -264,6 +270,15 @@ export function parseLaunchSessionInput(v: unknown): LaunchSessionInput | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const { worktreePath } = v as Record<string, unknown>;
   return isNonEmptyString(worktreePath, 1024) ? { worktreePath } : null;
+}
+
+/** Browser request to create a blank managed worktree for a live repo group. */
+export type CreateWorktreeInput = { groupPath: string };
+
+export function parseCreateWorktreeInput(v: unknown): CreateWorktreeInput | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const { groupPath } = v as Record<string, unknown>;
+  return isNonEmptyString(groupPath, 1024) ? { groupPath } : null;
 }
 
 /** Browser create-request body. */

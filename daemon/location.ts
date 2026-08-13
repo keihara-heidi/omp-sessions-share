@@ -24,6 +24,25 @@ export const SHARED_CONTEXT_ROOT_WORKTREE_NAME = "Shared context";
 
 const cache = new Map<string, SessionLocation>();
 
+const BRANCH_TTL_MS = 5_000;
+const branchCache = new Map<string, { branch: string | undefined; expiresAt: number }>();
+
+/** Current branch for a checkout. Empty/detached → undefined. Cached briefly. */
+export function readGitBranch(cwd: string, now = Date.now()): string | undefined {
+  const cached = branchCache.get(cwd);
+  if (cached && cached.expiresAt > now) return cached.branch;
+  const result = Bun.spawnSync(
+    ["git", "-C", cwd, "branch", "--show-current"],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  const branch =
+    result.exitCode === 0
+      ? new TextDecoder().decode(result.stdout).trim() || undefined
+      : undefined;
+  branchCache.set(cwd, { branch, expiresAt: now + BRANCH_TTL_MS });
+  return branch;
+}
+
 /**
  * Physical path seam (matches Superconductor `cd … && pwd -P`).
  * `realpathSync.native` when possible; otherwise `path.resolve`.
@@ -205,4 +224,5 @@ export function resolveSessionLocation(cwd: string): SessionLocation {
 
 export function clearLocationCache(): void {
   cache.clear();
+  branchCache.clear();
 }

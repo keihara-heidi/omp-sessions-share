@@ -10,6 +10,7 @@ import {
   locationFromGit,
   resolveSessionLocation,
   sharedContextLocation,
+  readGitBranch,
 } from "../daemon/location";
 import {
   getSession,
@@ -381,6 +382,25 @@ describe("resolveSessionLocation symlink canonicalization", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
       resetStoreForTests();
+    }
+  });
+});
+
+describe("readGitBranch", () => {
+  test("returns current branch and ignores non-git paths", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-branch-"));
+    try {
+      const git = Bun.spawnSync(["git", "init", "-b", "feat/show-branch"], {
+        cwd: root,
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      expect(git.exitCode).toBe(0);
+      expect(readGitBranch(root)).toBe("feat/show-branch");
+      expect(readGitBranch("/tmp/definitely-not-a-git-repo-omp")).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      clearLocationCache();
     }
   });
 });

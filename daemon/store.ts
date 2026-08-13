@@ -14,7 +14,7 @@ import {
   newId,
   stripEncryptedLink,
 } from "../lib/contracts";
-import { clearLocationCache, resolveSessionLocation } from "./location";
+import { clearLocationCache, readGitBranch, resolveSessionLocation } from "./location";
 
 type Timed<T> = { value: T; expiresAt: number };
 
@@ -63,6 +63,7 @@ function sessionFingerprint(s: SessionSummary): string {
     s.group.path,
     s.worktree.name,
     s.worktree.path,
+    s.worktree.branch ?? "",
   ].join("\0");
 }
 
@@ -194,6 +195,10 @@ export function upsertSession(
     existing && existing.cwd === input.cwd
       ? { group: existing.group, worktree: existing.worktree }
       : resolveSessionLocation(input.cwd);
+  const branch = readGitBranch(location.worktree.path, now);
+  const worktree = branch
+    ? { name: location.worktree.name, path: location.worktree.path, branch }
+    : { name: location.worktree.name, path: location.worktree.path };
   const session: SessionSummary = {
     id: input.id,
     title: input.title,
@@ -201,7 +206,7 @@ export function upsertSession(
     startedAt: existing?.startedAt ?? input.startedAt,
     lastSeenAt: new Date(now).toISOString(),
     group: location.group,
-    worktree: location.worktree,
+    worktree,
   };
   const changed = meaningfulChanged(existing, session);
   writeSession(session, now);

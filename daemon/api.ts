@@ -35,12 +35,14 @@ import {
   jsonError,
   jsonOk,
   parseCreateJoinRequestInput,
+  parseCreateWorktreeInput,
   parseLaunchSessionInput,
   parseHostSessionHeartbeat,
   parseRequestDecision,
   readJsonBody,
   stripEncryptedLink,
 } from "../lib/contracts";
+import { createBlankWorktree } from "./sc-worktree";
 
 
 function err(
@@ -229,6 +231,8 @@ async function handleEvents(
 
 type LaunchOmp = (worktreePath: string) => Promise<void>;
 
+type CreateWorktree = (advertisedPaths: string[]) => Promise<{ path: string }>;
+
 async function launchOmpInTerminal(worktreePath: string): Promise<void> {
   if (!(await stat(worktreePath)).isDirectory()) {
     throw new Error("worktree is not a directory");
@@ -274,6 +278,46 @@ async function handleLaunchSession(
     return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return err("Could not start session", 500);
+  }
+}
+
+async function handleCreateWorktree(
+  req: Request,
+  config: ShareConfig,
+  launchOmp: LaunchOmp,
+  createWorktree: CreateWorktree,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const input = parseCreateWorktreeInput(parsedBody.value);
+  if (!input) return err("Invalid body", 400);
+  const advertisedPaths = [
+    ...new Set(
+      listSessions()
+        .filter((session) => session.group.path === input.groupPath)
+        .flatMap((session) => [session.group.path, session.worktree.path]),
+    ),
+  ];
+  if (advertisedPaths.length === 0) return err("Repository not found", 404);
+
+  try {
+    const created = await createWorktree(advertisedPaths);
+    await launchOmp(created.path);
+    return jsonOk(
+      { ok: true, path: created.path },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message === "Project not found" || message === "Not a git repository") {
+      return err(message, message === "Project not found" ? 404 : 400);
+    }
+    return err("Could not create worktree", 500);
   }
 }
 
@@ -446,6 +490,7 @@ export async function handleApi(
   config: ShareConfig,
   pathname: string,
   launchOmp: LaunchOmp = launchOmpInTerminal,
+  createWorktree: CreateWorktree = createBlankWorktree,
 ): Promise<Response | null> {
   if (!pathname.startsWith("/api/")) return null;
   const method = req.method.toUpperCase();
@@ -464,6 +509,9 @@ export async function handleApi(
   }
   if (pathname === "/api/sessions/launch" && method === "POST") {
     return handleLaunchSession(req, config, launchOmp);
+  }
+  if (pathname === "/api/sessions/worktrees" && method === "POST") {
+    return handleCreateWorktree(req, config, launchOmp, createWorktree);
   }
   if (pathname === "/api/events" && method === "GET") {
     return handleEvents(req, config);
