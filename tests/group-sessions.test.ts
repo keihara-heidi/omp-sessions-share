@@ -199,6 +199,14 @@ describe("groupSessions", () => {
     expect(ids(groupSessions(all, "SCRATCH"))).toEqual(["s-scratch"]);
   });
 
+
+  test("fuzzy terms can match across hierarchy and session fields", () => {
+    expect(ids(groupSessions(all, "om gruping"))).toEqual(["s-feature"]);
+    expect(ids(groupSessions(all, "featuer")).sort()).toEqual(
+      ["s-feature", "s-feature-old"].sort(),
+    );
+    expect(ids(groupSessions(all, "ui app"))).toEqual(["s-main-new"]);
+  });
   test("empty result when nothing matches", () => {
     expect(groupSessions(all, "zzz-no-match")).toEqual([]);
     expect(groupSessions([], "")).toEqual([]);

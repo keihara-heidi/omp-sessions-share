@@ -75,7 +75,7 @@ export function NoResults({
         <EmptyTitle>No matches</EmptyTitle>
         <EmptyDescription>
           Nothing matches <span className="font-medium">“{query}”</span> across
-          folders, repositories, worktrees, or session titles.
+          repositories, branches, worktrees, or session titles.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>

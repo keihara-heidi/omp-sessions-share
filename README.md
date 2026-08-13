@@ -46,7 +46,7 @@ Folder / Repository
     └── Sessions
 ```
 
-Search matches folder/repository names and paths, worktrees, session titles, and session directories. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
+Search is typo-tolerant and lets separate query terms match across repository names and paths, worktree or branch-like names, session titles, and session directories. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
 
 Dashboard session changes arrive through an authenticated live event stream; no phone reload needed. A 15-second poll remains as a disconnect fallback.
 

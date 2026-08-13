@@ -96,7 +96,7 @@ export default function DashboardPage() {
           </InputGroupAddon>
           <InputGroupInput
             type="search"
-            placeholder="Search folders, worktrees, sessions…"
+            placeholder="Search repos, branches, worktrees, sessions…"
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

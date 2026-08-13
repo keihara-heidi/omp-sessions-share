@@ -1,3 +1,4 @@
+import Fuse from "fuse.js";
 import type { SessionGroupKind, SessionSummary } from "@/lib/contracts";
 
 export type WorktreeGroup = {
@@ -13,9 +14,6 @@ export type SessionGroup = {
   worktrees: WorktreeGroup[];
 };
 
-function matches(query: string, ...haystacks: string[]): boolean {
-  return haystacks.some((h) => h.toLowerCase().includes(query));
-}
 
 function newest(sessions: SessionSummary[]): number {
   let max = 0;
@@ -27,31 +25,60 @@ function newest(sessions: SessionSummary[]): number {
 }
 
 /**
- * Group sessions into repository/folder → worktree → sessions, filtered by a
- * case-insensitive search query. A query matching a group's name or path
- * keeps the entire group; matching a worktree's name or path keeps that
- * entire worktree; otherwise only sessions whose title or cwd match are kept.
- * Groups, worktrees, and sessions are each ordered newest-first by the most
- * recent descendant session's lastSeenAt.
+ * Group sessions into repository/folder → worktree → sessions. Fuse.js lets
+ * each whitespace-delimited query term match a different repo, worktree,
+ * title, or path field while tolerating small spelling mistakes. Results
+ * retain hierarchy and newest-first ordering.
  */
 export function groupSessions(
   sessions: SessionSummary[],
   query: string,
 ): SessionGroup[] {
-  const q = query.trim().toLowerCase();
+  const terms = query.trim().split(/\s+/).filter(Boolean);
+  const fuse = new Fuse(sessions, {
+    keys: [
+      "group.name",
+      "group.path",
+      "worktree.name",
+      "worktree.path",
+      "title",
+      "cwd",
+    ],
+    threshold: 0.35,
+    ignoreLocation: true,
+    minMatchCharLength: 1,
+  });
+  const matchingIds = terms.map((term) => {
+    const needle = term.toLowerCase();
+    const exactIds = new Set(
+      sessions
+        .filter((session) =>
+          [
+            session.group.name,
+            session.group.path,
+            session.worktree.name,
+            session.worktree.path,
+            session.title,
+            session.cwd,
+          ].some((value) => value.toLowerCase().includes(needle)),
+        )
+        .map((session) => session.id),
+    );
+    return exactIds.size > 0
+      ? exactIds
+      : new Set(fuse.search(term).map(({ item }) => item.id));
+  });
+  const filteredSessions =
+    matchingIds.length === 0
+      ? sessions
+      : sessions.filter((session) =>
+          matchingIds.every((ids) => ids.has(session.id)),
+        );
   const groups = new Map<string, SessionGroup>();
   const worktreesByPath = new Map<string, WorktreeGroup>();
 
-  for (const session of sessions) {
+  for (const session of filteredSessions) {
     const { group, worktree } = session;
-    if (
-      q !== "" &&
-      !matches(q, group.name, group.path) &&
-      !matches(q, worktree.name, worktree.path) &&
-      !matches(q, session.title, session.cwd)
-    ) {
-      continue;
-    }
     let g = groups.get(group.path);
     if (!g) {
       g = { kind: group.kind, name: group.name, path: group.path, worktrees: [] };
