@@ -26,7 +26,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={cn("dark font-sans", geist.variable, geistMono.variable)}>
-      <body className="min-h-dvh antialiased">
+      <body>
         <Providers>{children}</Providers>
         <Toaster />
       </body>
