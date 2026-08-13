@@ -1,19 +1,12 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { CircleMinus, FolderCode, GitBranch, LoaderCircle, MonitorOff, SearchX } from "lucide-react";
+import { MonitorOff, SearchX } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DashedEmpty } from "@/components/ds/feedback";
+import { SessionCard, SessionSkeletonList } from "@/components/ds/session";
 import { api } from "@/app/components/api";
 import type { SessionSummary } from "@/lib/contracts";
 
@@ -30,32 +23,15 @@ function freshness(lastSeenAt: string, now: number): string {
 }
 
 export function SessionSkeletons() {
-  return (
-    <div className="flex flex-col gap-3" aria-hidden>
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-lg border p-4">
-          <Skeleton className="h-5 w-2/3" />
-          <Skeleton className="mt-2 h-4 w-1/2" />
-        </div>
-      ))}
-    </div>
-  );
+  return <SessionSkeletonList />;
 }
 
 export function NoSessions() {
   return (
-    <Empty className="border border-dashed">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <MonitorOff aria-hidden />
-        </EmptyMedia>
-        <EmptyTitle>No live sessions</EmptyTitle>
-        <EmptyDescription>
-          Start an OMP session on the Mac and it will show up here within a few
-          seconds.
-        </EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <DashedEmpty icon={<MonitorOff aria-hidden />} title="No live sessions">
+      Start an OMP session on the Mac and it will show up here within a few
+      seconds.
+    </DashedEmpty>
   );
 }
 
@@ -67,23 +43,18 @@ export function NoResults({
   onClear: () => void;
 }) {
   return (
-    <Empty className="border border-dashed">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <SearchX aria-hidden />
-        </EmptyMedia>
-        <EmptyTitle>No matches</EmptyTitle>
-        <EmptyDescription>
-          Nothing matches <span className="font-medium">“{query}”</span> across
-          repositories, branches, worktrees, or session titles.
-        </EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
+    <DashedEmpty
+      icon={<SearchX aria-hidden />}
+      title="No matches"
+      action={
         <Button variant="outline" size="sm" onClick={onClear}>
           Clear search
         </Button>
-      </EmptyContent>
-    </Empty>
+      }
+    >
+      Nothing matches “{query}” across repositories, branches, worktrees, or
+      session titles.
+    </DashedEmpty>
   );
 }
 
@@ -106,9 +77,10 @@ export function SessionButton({
   async function deactivate() {
     setDeactivating(true);
     try {
-      await api<{ ok: true }>(`/api/sessions/${encodeURIComponent(session.id)}/deactivate`, {
-        method: "POST",
-      });
+      await api<{ ok: true }>(
+        `/api/sessions/${encodeURIComponent(session.id)}/deactivate`,
+        { method: "POST" },
+      );
       queryClient.setQueryData<SessionSummary[]>(["sessions"], (sessions) =>
         sessions?.filter((item) => item.id !== session.id),
       );
@@ -119,55 +91,22 @@ export function SessionButton({
       setDeactivating(false);
     }
   }
+
   return (
-    <div className="relative">
-      <button
-        type="button"
-        className="flex w-full touch-manipulation flex-col gap-1.5 rounded-lg border bg-card p-4 pr-12 text-left text-card-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
-        onClick={() => onSelect(session)}
-        disabled={openingId !== null || deactivating}
-        aria-busy={opening}
-      >
-        <span className="flex w-full items-center gap-2 text-sm font-medium">
-          <span
-            aria-hidden
-            data-stale={stale || undefined}
-            className="size-2 shrink-0 rounded-full bg-ok ring-[3px] ring-ok/25 data-stale:bg-dim data-stale:ring-0"
-          />
-          <span className="truncate">{session.title}</span>
-        </span>
-        <span className="flex w-full items-center gap-1.5 truncate font-mono text-[11px] text-dim">
-          <FolderCode aria-hidden className="size-3.5 shrink-0" />
-          <span className="truncate" dir="rtl">
-            <bdi>{tildify(session.cwd)}</bdi>
-          </span>
-        </span>
-        {session.worktree.branch ? (
-          <span className="flex w-full items-center gap-1.5 truncate font-mono text-[11px] text-link">
-            <GitBranch aria-hidden className="size-3.5 shrink-0" />
-            <span className="truncate">{session.worktree.branch}</span>
-          </span>
-        ) : null}
-        <span className="text-xs text-muted-foreground" aria-live="polite">
-          {opening ? "Opening…" : freshness(session.lastSeenAt, now)}
-        </span>
-      </button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="absolute right-2 top-2 text-muted-foreground hover:text-destructive"
-        onClick={deactivate}
-        disabled={deactivating || openingId !== null}
-        aria-label={`Remove ${session.title} from active sessions`}
-        title="Mark inactive"
-      >
-        {deactivating ? (
-          <LoaderCircle aria-hidden className="animate-spin" />
-        ) : (
-          <CircleMinus aria-hidden />
-        )}
-      </Button>
-    </div>
+    <SessionCard
+      stale={stale}
+      disabled={openingId !== null || deactivating}
+      busy={opening}
+      onSelect={() => onSelect(session)}
+      onRemove={() => {
+        void deactivate();
+      }}
+      removeLabel={`Remove ${session.title} from active sessions`}
+      removing={deactivating}
+      title={session.title}
+      path={tildify(session.cwd)}
+      branch={session.worktree.branch}
+      meta={opening ? "Opening…" : freshness(session.lastSeenAt, now)}
+    />
   );
 }

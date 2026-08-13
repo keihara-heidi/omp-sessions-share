@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { FailAlert, WarnAlert } from "@/components/ds/feedback";
 import { Page, PageHeader, PageSearch, PageTitle } from "@/components/ds/page";
-import { Button } from "@/components/ui/button";
 import type { SessionSummary } from "@/lib/contracts";
 import { api, ApiError } from "@/app/components/api";
 import { groupSessions } from "@/app/components/group-sessions";
@@ -100,7 +100,7 @@ export default function DashboardPage() {
             void sessions.refetch();
           }}
         >
-          The server isn&apos;t responding. Check your connection.
+          The server isn't responding. Check your connection.
         </FailAlert>
       )}
 
