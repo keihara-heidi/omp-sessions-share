@@ -100,6 +100,7 @@ type SessionRuntime = {
 	busy: Set<string>;
 	inputFallbackArmed: boolean;
 	autoStartAttempted: boolean;
+	shareStopped: boolean;
 	pendingUserContent: UserMessageContent | null;
 	lastErrorAt: number;
 };
@@ -111,6 +112,7 @@ const COLLAB_FRAGMENT_RE = /^[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{64}$/;
 const PUBLIC_COLLAB_WEB_ORIGIN = "https://my.omp.sh";
 const NATIVE_COLLAB_WS = "ws://127.0.0.1:7466";
 const NATIVE_COLLAB_COMMAND = `/collab ${NATIVE_COLLAB_WS}`;
+const NATIVE_COLLAB_STOP_COMMAND = "/collab stop";
 const LOOPBACK_HTTP_ORIGINS: Record<string, true> = {
 	"http://127.0.0.1:7466": true,
 	"http://localhost:7466": true,
@@ -571,6 +573,7 @@ function ensureRuntime(ctx: ExtensionContext, api: ExtensionAPI): SessionRuntime
 		busy: new Set(),
 		inputFallbackArmed: false,
 		autoStartAttempted: false,
+		shareStopped: false,
 		pendingUserContent: null,
 		lastErrorAt: 0,
 		polling: false,
@@ -581,6 +584,7 @@ function ensureRuntime(ctx: ExtensionContext, api: ExtensionAPI): SessionRuntime
 
 function startPollLoop(rt: SessionRuntime): void {
 	if (rt.pollTimer) return;
+	if (rt.shareStopped) return;
 	if (!bridge.webLink) return;
 	void pollOnce(rt);
 	rt.pollTimer = rt.ctx.setInterval(() => {
@@ -589,7 +593,7 @@ function startPollLoop(rt: SessionRuntime): void {
 }
 
 async function pollOnce(rt: SessionRuntime): Promise<void> {
-	if (!bridge.webLink || rt.polling) return;
+	if (rt.shareStopped || !bridge.webLink || rt.polling) return;
 	if (rt.sessionId !== rt.ctx.sessionManager.getSessionId()) return;
 	rt.polling = true;
 	try {
@@ -768,6 +772,38 @@ async function tryTriggerNativeCollab(rt: SessionRuntime): Promise<boolean> {
 	return Boolean(link);
 }
 
+async function startShare(rt: SessionRuntime): Promise<void> {
+	rt.shareStopped = false;
+	rt.inputFallbackArmed = false;
+
+	const installed = await installCollabBridge();
+	if (runtime !== rt || rt.shareStopped) return;
+	if (!installed.ok) {
+		notifyError(rt.ctx, `Share: ${installed.reason ?? "collab bridge unavailable"}`);
+		return;
+	}
+
+	const config = await getShareConfig();
+	if (runtime !== rt || rt.shareStopped) return;
+	if (!config) {
+		notifyError(rt.ctx, "Share: not configured. Confirm setup on session start, then restart OMP.");
+		return;
+	}
+	if (bridge.webLink) {
+		startPollLoop(rt);
+		notifyInfo(rt.ctx, "Share already running");
+		return;
+	}
+
+	const started = await tryTriggerNativeCollab(rt);
+	if (runtime !== rt || rt.shareStopped) return;
+	if (!started || !bridge.webLink) {
+		notifyError(rt.ctx, "Share: failed to start native /collab");
+		return;
+	}
+	startPollLoop(rt);
+}
+
 async function offerFirstRunSetup(ctx: ExtensionContext): Promise<ShareConfig | null> {
 	if (setupPrompted) return null;
 	setupPrompted = true;
@@ -832,19 +868,27 @@ async function onSessionReady(ctx: ExtensionContext, api: ExtensionAPI): Promise
 	await delayDone;
 
 	const live = ensureRuntime(ctx, api);
+	if (live.shareStopped) return;
 	if (bridge.webLink) {
 		startPollLoop(live);
 		return;
 	}
 
 	const started = await tryTriggerNativeCollab(live);
-	if (started && bridge.webLink) {
+	if (!live.shareStopped && started && bridge.webLink) {
 		startPollLoop(live);
 		flushPendingUserText(live);
 		return;
 	}
+	if (live.shareStopped) return;
 
 	live.inputFallbackArmed = true;
+}
+
+export function parseShareCommand(text: string): "start" | "stop" | null {
+	const match = /^\/share(?:\s+(stop))?\s*$/i.exec(text.trim());
+	if (!match) return null;
+	return match[1] ? "stop" : "start";
 }
 
 function isShareCommand(text: string): boolean {
@@ -902,26 +946,29 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 
 	pi.on("input", (event, ctx) => {
 		const text = event.text ?? "";
+		const rt = runtime && runtime.sessionId === ctx.sessionManager.getSessionId() ? runtime : null;
+		const shareCommand = parseShareCommand(text);
 
+		if (shareCommand === "start") {
+			const live = rt ?? ensureRuntime(ctx, pi);
+			void startShare(live);
+			return { handled: true };
+		}
+		if (shareCommand === "stop") {
+			if (rt) {
+				rt.shareStopped = true;
+				rt.inputFallbackArmed = false;
+				stopPoll();
+			}
+			return { text: NATIVE_COLLAB_STOP_COMMAND };
+		}
 		if (isShareCommand(text)) {
-			void getShareConfig().then(config => {
-				if (config?.publicOrigin && config.dashboardPassword) {
-					notifyInfo(
-						ctx,
-						`Sessions share\n  URL: ${config.publicOrigin}\n  Password: ${config.dashboardPassword}`,
-					);
-				} else {
-					notifyError(
-						ctx,
-						"Share: not configured. Confirm setup on session start, then restart OMP.",
-					);
-				}
-			});
+			notifyError(ctx, "Usage: /share [stop]");
 			return { handled: true };
 		}
 
-		const rt = runtime && runtime.sessionId === ctx.sessionManager.getSessionId() ? runtime : null;
 		if (isCollabCommand(text)) {
+			if (rt) rt.shareStopped = false;
 			if (bridge.webLink) {
 				notifyInfo(ctx, bridge.webLink);
 				return { handled: true };

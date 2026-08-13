@@ -5,9 +5,23 @@ import path from "node:path";
 import {
   disableBundledCollabQrCode,
   disableCollabQrCode,
+  parseShareCommand,
   sanitizeOpenRouterResponsesPayload,
   submitEditorCommandPreservingDraft,
 } from "../extension";
+
+test("share command supports start and stop", () => {
+  expect(parseShareCommand("/share")).toBe("start");
+  expect(parseShareCommand("  /SHARE  ")).toBe("start");
+  expect(parseShareCommand("/share stop")).toBe("stop");
+  expect(parseShareCommand("/SHARE STOP  ")).toBe("stop");
+});
+
+test("share command rejects unsupported arguments", () => {
+  expect(parseShareCommand("/share start")).toBeNull();
+  expect(parseShareCommand("/share stop now")).toBeNull();
+  expect(parseShareCommand("/shared")).toBeNull();
+});
 
 test("auto-collab preserves a resumed session prefill", async () => {
   let editorText = "continue existing task";
