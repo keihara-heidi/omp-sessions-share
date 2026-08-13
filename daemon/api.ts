@@ -274,10 +274,12 @@ async function launchOmpInTerminal(
     throw new Error("worktree is not a directory");
   }
   const ompPath = join(homedir(), ".local", "bin", "omp");
+  // An empty @file selects OMP's immediate initial-message path without
+  // changing the prompt text; a bare positional may remain as an editor draft.
   const script =
     initialPrompt === undefined
       ? 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv'
-      : 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " " & quoted form of item 3 of argv';
+      : 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " @/dev/null " & quoted form of item 3 of argv';
   const argv = [
     "/usr/bin/osascript",
     "-e",
