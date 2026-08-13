@@ -1,10 +1,10 @@
 1:"$Sreact.fragment"
-2:I[5814,["20","static/chunks/20-56cd51059939a9b1.js","177","static/chunks/app/layout-7ac8e6c0522cf69f.js"],"default"]
+2:I[5814,["20","static/chunks/20-56cd51059939a9b1.js","177","static/chunks/app/layout-8ab8d7ccecc5550b.js"],"default"]
 3:I[9766,[],""]
 4:I[8924,[],""]
-5:I[1493,["20","static/chunks/20-56cd51059939a9b1.js","177","static/chunks/app/layout-7ac8e6c0522cf69f.js"],"Toaster"]
+5:I[1493,["20","static/chunks/20-56cd51059939a9b1.js","177","static/chunks/app/layout-8ab8d7ccecc5550b.js"],"Toaster"]
 6:I[1959,[],"ClientPageRoot"]
-7:I[6399,["20","static/chunks/20-56cd51059939a9b1.js","380","static/chunks/380-968edc2bbcbe8852.js","259","static/chunks/259-05ee5b6b6fc3eb0a.js","974","static/chunks/app/page-ba5ce26989ecde83.js"],"default"]
+7:I[6399,["20","static/chunks/20-56cd51059939a9b1.js","380","static/chunks/380-968edc2bbcbe8852.js","259","static/chunks/259-05ee5b6b6fc3eb0a.js","974","static/chunks/app/page-37c6e7702ea76acd.js"],"default"]
 a:I[4431,[],"OutletBoundary"]
 c:I[5278,[],"AsyncMetadataOutlet"]
 e:I[4431,[],"ViewportBoundary"]

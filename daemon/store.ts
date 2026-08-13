@@ -2,11 +2,13 @@
 
 import {
   type CreateJoinRequestInput,
+  type DashboardLocation,
   type EncryptedLink,
   type HostSessionHeartbeatInput,
   type JoinRequest,
   type JoinRequestResult,
   type RequestDecisionInput,
+  type SessionDashboard,
   type SessionSummary,
   REQUEST_TTL_SECONDS,
   SESSION_TTL_SECONDS,
@@ -19,6 +21,8 @@ import { clearLocationCache, readGitBranch, resolveSessionLocation } from "./loc
 type Timed<T> = { value: T; expiresAt: number };
 
 const sessions = new Map<string, Timed<SessionSummary>>();
+/** Worktrees remain available after their last live session expires. */
+const dashboardLocations = new Map<string, DashboardLocation>();
 const inactiveSessionIds = new Set<string>();
 const requests = new Map<string, Timed<JoinRequestResult>>();
 /** sessionId → request ids */
@@ -75,6 +79,29 @@ function meaningfulChanged(
 ): boolean {
   if (!prev) return true;
   return sessionFingerprint(prev) !== sessionFingerprint(next);
+}
+
+function dashboardLocationKey(groupPath: string, worktreePath: string): string {
+  return `${groupPath}\0${worktreePath}`;
+}
+
+function writeDashboardLocation(location: DashboardLocation): boolean {
+  const key = dashboardLocationKey(location.group.path, location.worktree.path);
+  const previous = dashboardLocations.get(key);
+  const lastSessionStartedAt =
+    previous && Date.parse(previous.lastSessionStartedAt) > Date.parse(location.lastSessionStartedAt)
+      ? previous.lastSessionStartedAt
+      : location.lastSessionStartedAt;
+  const next = { ...location, lastSessionStartedAt };
+  const changed =
+    !previous ||
+    previous.group.kind !== next.group.kind ||
+    previous.group.name !== next.group.name ||
+    previous.worktree.name !== next.worktree.name ||
+    previous.worktree.branch !== next.worktree.branch ||
+    previous.lastSessionStartedAt !== next.lastSessionStartedAt;
+  dashboardLocations.set(key, next);
+  return changed;
 }
 
 /** Drop expired sessions; returns true when any removed. */
@@ -213,10 +240,51 @@ export function upsertSession(
     worktree,
   };
   const changed = meaningfulChanged(existing, session);
+  const locationChanged = writeDashboardLocation({
+    group: session.group,
+    worktree: session.worktree,
+    lastSessionStartedAt: session.startedAt,
+  });
   writeSession(session, now);
   if (input.pid !== undefined) sessionPids.set(session.id, input.pid);
-  if (changed) notifySessionListeners();
+  if (changed || locationChanged) notifySessionListeners();
   return session;
+}
+
+/** Remember a path so it remains actionable before or after any live session. */
+export function registerDashboardLocation(
+  cwd: string,
+  lastSessionStartedAt = new Date(nowMs()).toISOString(),
+): DashboardLocation {
+  const location = resolveSessionLocation(cwd);
+  const branch = readGitBranch(location.worktree.path, nowMs());
+  const worktree = branch
+    ? { ...location.worktree, branch }
+    : location.worktree;
+  const registered = { group: location.group, worktree, lastSessionStartedAt };
+  if (writeDashboardLocation(registered)) notifySessionListeners();
+  return registered;
+}
+
+export function listDashboardLocations(): DashboardLocation[] {
+  return [...dashboardLocations.values()].sort(
+    (a, b) => Date.parse(b.lastSessionStartedAt) - Date.parse(a.lastSessionStartedAt),
+  );
+}
+
+export function getSessionDashboard(): SessionDashboard {
+  return { sessions: listSessions(), locations: listDashboardLocations() };
+}
+
+export function removeDashboardLocation(
+  groupPath: string,
+  worktreePath: string,
+): boolean {
+  const removed = dashboardLocations.delete(
+    dashboardLocationKey(groupPath, worktreePath),
+  );
+  if (removed) notifySessionListeners();
+  return removed;
 }
 
 export function getSession(id: string): SessionSummary | null {
@@ -365,6 +433,7 @@ export function consumeLoginAttempt(): boolean {
 /** Test helper — wipe all maps and restore clock. */
 export function resetStoreForTests(): void {
   sessions.clear();
+  dashboardLocations.clear();
   inactiveSessionIds.clear();
   requests.clear();
   sessionRequestIndex.clear();

@@ -19,7 +19,7 @@ export default function DashboardPage() {
     clearSelected,
     failed,
     groups,
-    hasSessions,
+    hasLocations,
     isLoggingOut,
     isPending,
     logOut,
@@ -30,7 +30,7 @@ export default function DashboardPage() {
     retry,
     selected,
     selectSession,
-    sessions,
+    locations,
     setQuery,
     unauthorized,
   } = useSessionDashboard();
@@ -53,7 +53,7 @@ export default function DashboardPage() {
         </Button>
       </PageHeader>
 
-      {hasSessions ? <PageSearch value={query} onChange={setQuery} /> : null}
+      {hasLocations ? <PageSearch value={query} onChange={setQuery} /> : null}
 
       {offline ? (
         <WarnAlert title="Connection lost">
@@ -73,8 +73,8 @@ export default function DashboardPage() {
         </FailAlert>
       ) : null}
 
-      {sessions !== undefined ? (
-        sessions.length === 0 ? (
+      {locations !== undefined ? (
+        locations.length === 0 ? (
           <NoSessions />
         ) : groups.length === 0 ? (
           <NoResults query={query} onClear={clearQuery} />

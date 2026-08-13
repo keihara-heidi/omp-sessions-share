@@ -5,7 +5,13 @@ import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
 import { handleApi } from "../daemon/api";
 import { DASHBOARD_COOKIE_NAME } from "../lib/auth";
-import { listSessions, resetStoreForTests, upsertSession } from "../daemon/store";
+import {
+  deactivateSession,
+  getSessionDashboard,
+  listSessions,
+  resetStoreForTests,
+  upsertSession,
+} from "../daemon/store";
 import { createGitWorktree } from "../daemon/git-worktree";
 
 const config: ShareConfig = {
@@ -148,7 +154,7 @@ describe("local daemon auth gates", () => {
     });
   });
 
-  test("starts OMP only in a live worktree", async () => {
+  test("starts OMP in a remembered worktree with no live sessions", async () => {
     const session = upsertSession({
       id: "launch_source",
       title: "Existing session",
@@ -161,6 +167,8 @@ describe("local daemon auth gates", () => {
       jsonRequest("http://local/api/sessions/launch", body),
     );
     expect(unauthorized.status).toBe(401);
+    expect(deactivateSession(session.id)).toBe(true);
+    expect(listSessions()).toEqual([]);
 
     const cookie = await loginCookie();
     const launchedPaths: string[] = [];
@@ -191,7 +199,7 @@ describe("local daemon auth gates", () => {
     expect(unknown?.status).toBe(404);
   });
 
-  test("creates a blank worktree only for a live repository group", async () => {
+  test("creates a blank worktree for a remembered repository with no sessions", async () => {
     const repo = initGitRepo();
     try {
       const session = upsertSession({
@@ -206,6 +214,8 @@ describe("local daemon auth gates", () => {
         jsonRequest("http://local/api/sessions/worktrees", body),
       );
       expect(unauthorized.status).toBe(401);
+      expect(deactivateSession(session.id)).toBe(true);
+      expect(listSessions()).toEqual([]);
 
       const cookie = await loginCookie();
       const createdFor: string[][] = [];
@@ -250,7 +260,7 @@ describe("local daemon auth gates", () => {
     }
   });
 
-  test("deletes an advertised linked worktree and deactivates its sessions", async () => {
+  test("deletes a remembered linked worktree with no live sessions", async () => {
     const repo = initGitRepo();
     const linked = await createGitWorktree([repo]);
     try {
@@ -260,6 +270,7 @@ describe("local daemon auth gates", () => {
         cwd: linked.path,
         startedAt: "2026-08-12T00:00:00.000Z",
       });
+      expect(deactivateSession(session.id)).toBe(true);
       const cookie = await loginCookie();
       const removed: Array<[string, string]> = [];
       const res = await handleApi(
@@ -286,6 +297,7 @@ describe("local daemon auth gates", () => {
       expect(await res?.json()).toEqual({ data: { ok: true } });
       expect(removed).toEqual([[session.group.path, session.worktree.path]]);
       expect(listSessions()).toEqual([]);
+      expect(getSessionDashboard().locations).toEqual([]);
     } finally {
       rmSync(linked.path, { recursive: true, force: true });
       rmSync(repo, { recursive: true, force: true });

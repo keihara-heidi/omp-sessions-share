@@ -21,9 +21,13 @@ import {
   decideRequest,
   exclusiveSessionPid,
   getRequest,
+  getSessionDashboard,
   isSessionInactive,
+  listDashboardLocations,
   listRequestsBySession,
   listSessions,
+  registerDashboardLocation,
+  removeDashboardLocation,
   subscribeSessionChanges,
   upsertSession,
 } from "./store";
@@ -147,6 +151,17 @@ async function handleListSessions(
   const auth = await requireDashboardAuth(req, config);
   if (!isAuthOk(auth)) return noStore(auth);
   return jsonOk(listSessions(), {
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+async function handleDashboard(
+  req: Request,
+  config: ShareConfig,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  return jsonOk(getSessionDashboard(), {
     headers: { "Cache-Control": "no-store" },
   });
 }
@@ -308,7 +323,11 @@ async function handleLaunchSession(
   if (!parsedBody.ok) return err(parsedBody.error, 400);
   const input = parseLaunchSessionInput(parsedBody.value);
   if (!input) return err("Invalid body", 400);
-  if (!listSessions().some((session) => session.worktree.path === input.worktreePath)) {
+  if (
+    !listDashboardLocations().some(
+      (location) => location.worktree.path === input.worktreePath,
+    )
+  ) {
     return err("Worktree not found", 404);
   }
 
@@ -335,24 +354,25 @@ async function handleCreateWorktree(
   if (!parsedBody.ok) return err(parsedBody.error, 400);
   const input = parseCreateWorktreeInput(parsedBody.value);
   if (!input) return err("Invalid body", 400);
-  const groupSessions = listSessions().filter(
-    (session) => session.group.path === input.groupPath,
+  const groupLocations = listDashboardLocations().filter(
+    (location) => location.group.path === input.groupPath,
   );
-  if (groupSessions.length === 0) return err("Repository not found", 404);
-  if (groupSessions.every((session) => session.group.kind !== "repository")) {
+  if (groupLocations.length === 0) return err("Repository not found", 404);
+  if (groupLocations.every((location) => location.group.kind !== "repository")) {
     return err("Not a git repository", 400);
   }
   const advertisedPaths = [
     ...new Set(
-      groupSessions.flatMap((session) => [
-        session.group.path,
-        session.worktree.path,
+      groupLocations.flatMap((location) => [
+        location.group.path,
+        location.worktree.path,
       ]),
     ),
   ];
 
   try {
     const created = await createWorktree(advertisedPaths);
+    registerDashboardLocation(created.path);
     await launchOmp(created.path);
     return jsonOk(
       { ok: true, path: created.path },
@@ -366,7 +386,9 @@ async function handleCreateWorktree(
 }
 
 function isAdvertisedWorktreePath(worktreePath: string): boolean {
-  return listSessions().some((session) => session.worktree.path === worktreePath);
+  return listDashboardLocations().some(
+    (location) => location.worktree.path === worktreePath,
+  );
 }
 
 async function handleDeleteWorktree(
@@ -387,17 +409,23 @@ async function handleDeleteWorktree(
     return err("Cannot delete the primary worktree", 400);
   }
 
+  const location = listDashboardLocations().find(
+    (item) =>
+      item.group.kind === "repository" &&
+      item.group.path === input.groupPath &&
+      item.worktree.path === input.worktreePath,
+  );
+  if (!location) return err("Worktree not found", 404);
   const sessions = listSessions().filter(
     (session) =>
-      session.group.kind === "repository" &&
       session.group.path === input.groupPath &&
       session.worktree.path === input.worktreePath,
   );
-  if (sessions.length === 0) return err("Worktree not found", 404);
 
   const removeWorktree = deps.removeWorktree ?? removeGitWorktree;
   try {
     await removeWorktree(input.groupPath, input.worktreePath);
+    removeDashboardLocation(input.groupPath, input.worktreePath);
     for (const session of sessions) {
       const pid = exclusiveSessionPid(session.id);
       deactivateSession(session.id);
@@ -682,6 +710,9 @@ export async function handleApi(
   }
   if (pathname === "/api/sessions" && method === "GET") {
     return handleListSessions(req, config);
+  }
+  if (pathname === "/api/dashboard" && method === "GET") {
+    return handleDashboard(req, config);
   }
   if (pathname === "/api/sessions/launch" && method === "POST") {
     return handleLaunchSession(req, config, launchOmp);

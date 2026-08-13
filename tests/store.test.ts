@@ -11,6 +11,7 @@ import {
   exclusiveSessionPid,
   getRequest,
   getSession,
+  getSessionDashboard,
   listRequestsBySession,
   listSessions,
   resetStoreForTests,
@@ -64,6 +65,16 @@ describe("daemon store TTL pruning", () => {
     setNowForTests(() => t0 + SESSION_TTL_SECONDS * 1000);
     expect(getSession("s1")).toBeNull();
     expect(listSessions()).toEqual([]);
+    expect(getSessionDashboard()).toMatchObject({
+      sessions: [],
+      locations: [
+        {
+          group: created.group,
+          worktree: created.worktree,
+          lastSessionStartedAt: created.startedAt,
+        },
+      ],
+    });
   });
 
   test("heartbeat refreshes session TTL and keeps stable id + nested metadata", () => {
