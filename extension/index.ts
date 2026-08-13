@@ -21,7 +21,6 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import type { Component } from "@oh-my-pi/pi-tui";
 import { loadShareConfig, type ShareConfig } from "../shared/config";
 import { setupLocalRuntime } from "../setup/install";
 import { encryptWithPublicJwk, type PublicKeyJwk } from "./crypto";
@@ -154,7 +153,6 @@ function applyConfigToBridge(config: ShareConfig): void {
 		runtime.ctx,
 		`Sessions share (tailnet)\n  URL: ${config.publicOrigin}\n  Password: ${config.dashboardPassword}`,
 	);
-	void showDashboardQr(runtime.ctx, config.publicOrigin);
 }
 
 // ---- version + package root ----
@@ -225,27 +223,6 @@ function findCodingAgentRoot(): string | null {
 	return null;
 }
 
-async function showDashboardQr(ctx: ExtensionContext, url: string): Promise<void> {
-	const packageRoot = findCodingAgentRoot();
-	if (!packageRoot) return;
-	try {
-		const modulePath = path.join(
-			packageRoot,
-			"src/slash-commands/helpers/collab-qrcode.ts",
-		);
-		// Runtime-selected source path: OMP does not export this internal helper and host install roots differ.
-		const qrModule = (await import(pathToFileURL(modulePath).href)) as {
-			CollabQrCodeComponent?: new (url: string) => Component;
-		};
-		const QrCode = qrModule.CollabQrCodeComponent;
-		if (!QrCode) return;
-		ctx.ui.setWidget("omp-sessions-share-qr", () => new QrCode(url), {
-			placement: "aboveEditor",
-		});
-	} catch {
-		// The URL and password notification remains usable without QR rendering.
-	}
-}
 
 // ---- bridge: capture webLink ----
 
@@ -849,7 +826,6 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 
 	pi.on("input", (event, ctx) => {
 		const text = event.text ?? "";
-		ctx.ui.setWidget("omp-sessions-share-qr", undefined);
 
 		if (isShareCommand(text)) {
 			void getShareConfig().then(config => {
@@ -858,7 +834,6 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 						ctx,
 						`Sessions share\n  URL: ${config.publicOrigin}\n  Password: ${config.dashboardPassword}`,
 					);
-					void showDashboardQr(ctx, config.publicOrigin);
 				} else {
 					notifyError(
 						ctx,
@@ -871,6 +846,10 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 
 		const rt = runtime && runtime.sessionId === ctx.sessionManager.getSessionId() ? runtime : null;
 		if (isCollabCommand(text)) {
+			if (bridge.webLink) {
+				notifyInfo(ctx, bridge.webLink);
+				return { handled: true };
+			}
 			if (cachedConfig === null) {
 				notifyError(ctx, "Share: not configured");
 				return { handled: true };

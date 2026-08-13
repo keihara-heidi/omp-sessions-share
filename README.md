@@ -32,7 +32,7 @@ No Vercel, Redis, cloud database, or central service.
 ## Use
 
 1. Run `omp`. Native `/collab` starts automatically.
-2. Run `/share` to display the tailnet dashboard QR, URL, and password.
+2. Run `/share` to display the tailnet dashboard URL and password. Run `/collab` to display the active live-session link.
 3. On a tailnet-connected phone, open the URL and enter the password.
 4. Select a live session.
 
