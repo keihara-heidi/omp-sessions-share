@@ -1,16 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogOut, Search, WifiOff } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { FailAlert, WarnAlert } from "@/components/ds/feedback";
+import { Page, PageHeader, PageSearch, PageTitle } from "@/components/ds/page";
 import { Button } from "@/components/ui/button";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
 import type { SessionSummary } from "@/lib/contracts";
 import { api, ApiError } from "@/app/components/api";
 import { groupSessions } from "@/app/components/group-sessions";
@@ -70,14 +66,9 @@ export default function DashboardPage() {
   const now = Date.now();
 
   return (
-    <main className="mx-auto max-w-2xl px-4 pb-16 pt-6 sm:pt-10">
-      <header className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="text-base font-semibold">
-          OMP Sessions{" "}
-          <span className="text-[11px] font-normal text-dim">
-            on this Mac
-          </span>
-        </h1>
+    <Page>
+      <PageHeader>
+        <PageTitle kicker="on this Mac">OMP Sessions</PageTitle>
         <Button
           variant="ghost"
           size="sm"
@@ -87,51 +78,30 @@ export default function DashboardPage() {
           <LogOut aria-hidden />
           Log out
         </Button>
-      </header>
+      </PageHeader>
 
       {sessions.data !== undefined && sessions.data.length > 0 && (
-        <InputGroup className="mb-6">
-          <InputGroupAddon>
-            <Search aria-hidden />
-          </InputGroupAddon>
-          <InputGroupInput
-            type="search"
-            placeholder="Search repos, branches, worktrees, sessions…"
-            aria-label="Search sessions"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </InputGroup>
+        <PageSearch value={query} onChange={setQuery} />
       )}
 
       {offline && (
-        <Alert className="mb-4 border-warn/40 bg-warn/10 text-warn [&>svg]:text-warn">
-          <WifiOff aria-hidden />
-          <AlertTitle>Connection lost</AlertTitle>
-          <AlertDescription className="text-warn/80">
-            Showing the last known sessions. Retrying…
-          </AlertDescription>
-        </Alert>
+        <WarnAlert title="Connection lost">
+          Showing the last known sessions. Retrying…
+        </WarnAlert>
       )}
 
       {sessions.isPending && <SessionSkeletons />}
 
       {failed && (
-        <Alert variant="destructive">
-          <WifiOff aria-hidden />
-          <AlertTitle>Can&apos;t load sessions</AlertTitle>
-          <AlertDescription>
-            <p>The server isn&apos;t responding. Check your connection.</p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              onClick={() => sessions.refetch()}
-            >
-              Try again
-            </Button>
-          </AlertDescription>
-        </Alert>
+        <FailAlert
+          title="Can't load sessions"
+          actionLabel="Try again"
+          onAction={() => {
+            void sessions.refetch();
+          }}
+        >
+          The server isn&apos;t responding. Check your connection.
+        </FailAlert>
       )}
 
       {sessions.data !== undefined &&
@@ -151,6 +121,6 @@ export default function DashboardPage() {
       {selected && (
         <JoinSession session={selected} onDone={() => setSelected(null)} />
       )}
-    </main>
+    </Page>
   );
 }
