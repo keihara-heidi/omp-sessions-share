@@ -416,16 +416,103 @@ export function isPullRequestActionApplicable(
   }
 }
 
-function actionHeadline(action: PullRequestAction, prNumber: number): string {
+function actionSections(
+  action: PullRequestAction,
+  baseBranch: string,
+): {
+  title: string;
+  goal: string;
+  steps: string[];
+  done: string[];
+  reply: string;
+  closing: string;
+} {
   switch (action) {
     case "fix_checks":
-      return `Fix failing checks on PR #${prNumber}.`;
+      return {
+        title: "Fix CI Failures",
+        goal: "Get the review request back to a green or clearly improved CI state.",
+        steps: [
+          "Inspect the failing CI checks first (for example with `gh pr checks`, `gh run view <run-id> --log-failed`, `glab ci status`, or equivalent noninteractive logs) and identify the specific failing job or step.",
+          "Determine the root cause before editing code.",
+          "Implement the minimal fix needed for that root cause.",
+          "Run the narrowest verification that proves the fix or meaningfully de-risks it.",
+          "Commit the fix if changes were required.",
+          "Push explicitly: run `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`; if it fails, run `git push --set-upstream origin HEAD`; otherwise run `git push`.",
+        ],
+        done: [
+          "The CI failure has an identified root cause.",
+          "Any required changes are committed and pushed to the review branch.",
+          "You can report the verification you actually ran.",
+        ],
+        reply: "Summarize the failing check, root cause, fix, and verification.",
+        closing: "Let's get CI green again.",
+      };
     case "resolve_comments":
-      return `Resolve review comments on PR #${prNumber}.`;
+      return {
+        title: "Address Review Threads",
+        goal: "Evaluate every unresolved review thread against the code, then fix legitimate issues or decline with clear rationale. Do not clear threads without real evaluation.",
+        steps: [
+          "Inspect every unresolved review thread on the review request before responding. Comments can be wrong, outdated, or preference-only — verify each claim against the current code.",
+          "For each thread, decide: fix (legitimate issue), or no code change (invalid/outdated/preference/out of scope). Only implement changes you independently agree with.",
+          "Implement all required code changes first (minimal fixes only), then run relevant verification when practical.",
+          "Commit the fix set with meaningful commit boundaries.",
+          "Push explicitly: run `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`; if it fails, run `git push --set-upstream origin HEAD`; otherwise run `git push`.",
+          "After the push, reply directly to every unresolved thread: for fixed threads, summarize what changed (with relevant files/functions/tests); for no-change threads, explain the code-level rationale with evidence.",
+          "Resolve a thread only after its reply is posted and you are confident it is fully handled (real fix or evidence-backed decline). Leave uncertain threads open.",
+          "Do not leave any unresolved thread without a direct reply, and do not resolve just to clear the queue.",
+        ],
+        done: [
+          "Every unresolved review thread has a direct reply grounded in code evidence.",
+          "Required code changes are committed and pushed before posting thread replies.",
+          "No thread is marked resolved without either a concrete fix or a clear evidence-backed rationale.",
+        ],
+        reply: "Summarize each thread and whether it required a code change or rationale-only reply.",
+        closing: "Evaluate every unresolved review comment against the code. Fix only legitimate issues; decline the rest with evidence. Do not resolve anything you have not actually evaluated.",
+      };
     case "fix_conflicts":
-      return `Fix merge conflicts on PR #${prNumber}.`;
+      return {
+        title: "Resolve Merge Conflicts",
+        goal: `Resolve merge conflicts between this branch and \`origin/${baseBranch}\` without regressing the intended behavior.`,
+        steps: [
+          `Fetch the latest base branch: \`git fetch origin ${baseBranch}\`.`,
+          `Merge the base branch into the current branch: \`git merge origin/${baseBranch}\`.`,
+          "Inspect the conflicted files and the competing changes before editing.",
+          "Resolve every conflict carefully, preserving the intended final behavior from both sides.",
+          "Run `git diff --check` and verify no conflict markers remain.",
+          "Commit the merge resolution.",
+          "Push explicitly: run `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`; if it fails, run `git push --set-upstream origin HEAD`; otherwise run `git push`.",
+        ],
+        done: [
+          "There are no conflicted files left.",
+          "`git diff --check` is clean and no conflict markers remain.",
+          "The resolved branch is pushed upstream.",
+        ],
+        reply: "Briefly summarize which files were resolved and confirm the push status.",
+        closing: "Let's resolve conflicts and ship the update.",
+      };
     case "address_review":
-      return `Address review feedback on PR #${prNumber}.`;
+      return {
+        title: "Fix Requested Changes",
+        goal: "Evaluate the review request's requested-changes feedback against the code, then apply legitimate fixes or decline with clear technical rationale.",
+        steps: [
+          "Inspect the requested-changes review and related review request discussion before editing. Treat requests as claims — verify each against the current code.",
+          "Identify every requested change and decide whether each requires a code update or a rationale-only reply. Only implement changes you independently agree with.",
+          "Implement all required code changes first, keeping edits minimal and focused.",
+          "Run relevant verification when practical.",
+          "Commit the fix set with meaningful commit boundaries.",
+          "Push explicitly: run `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`; if it fails, run `git push --set-upstream origin HEAD`; otherwise run `git push`.",
+          "Reply to the requested-changes review or its relevant threads with what changed (or why not), including files/functions/tests when useful.",
+          "Do not mark work complete until each requested change has either a confirmed fix or a clear code-level rationale.",
+        ],
+        done: [
+          "Every requested change has been handled with a code fix or a direct evidence-backed rationale.",
+          "Required code changes are committed and pushed.",
+          "The final response identifies what was changed and what verification ran.",
+        ],
+        reply: "Summarize each requested change, the fix or rationale, and the verification.",
+        closing: "Evaluate the requested changes against the code. Fix only legitimate ones; decline the rest with evidence.",
+      };
   }
 }
 
@@ -481,8 +568,14 @@ export function buildPullRequestTask(
     failedCheckNamesByPath.get(canonicalizePath(status.worktreePath));
   const failedCheckNames = options?.failedCheckNames ?? cachedNames ?? [];
 
+  const sections = actionSections(action, pr.baseBranch);
   const lines = [
-    actionHeadline(action, pr.number),
+    sections.title,
+    "",
+    "Goal:",
+    sections.goal,
+    "",
+    "Context:",
     `PR: ${pr.url}`,
     `Number: #${pr.number}`,
     `Title: ${pr.title}`,
@@ -492,8 +585,27 @@ export function buildPullRequestTask(
     `Branch: ${status.branch || pr.headBranch}`,
     ...evidenceLines(action, pr, failedCheckNames),
     "",
-    "Inspect the current worktree and PR state, make the necessary fixes, and run focused validation.",
-    "Do not merge or push unless the user explicitly asks.",
+    "Rules:",
+    "- Use standard git plus the repository forge CLI for pull request or merge request operations: `gh` for GitHub, `glab` for GitLab.",
+    "- Inspect the current repo and existing pull request or merge request state before choosing commit messages, titles, bodies, or replies.",
+    "- Prefer repository conventions and existing templates when present.",
+    "- Create meaningful commit boundaries: split unrelated changes into separate commits and keep each commit focused.",
+    "- Use Conventional Commits for all new commits (`type(scope): summary` or `type: summary`; types: feat, fix, chore, docs, refactor, test, perf, build, ci, style).",
+    "- Use explicit push logic: check upstream with `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`; if absent, run `git push --set-upstream origin HEAD`, else run `git push`.",
+    "- Execute commands non-interactively and continue until the requested outcome is complete.",
+    "- For multi-line pull request or merge request content, write it to a temp file or heredoc and pass the file to the forge CLI instead of inline multi-line body text.",
+    "- If a command fails, resolve the issue and retry rather than stopping early.",
+    "",
+    "Steps:",
+    ...sections.steps.map((step, index) => `${index + 1}. ${step}`),
+    "",
+    "Done:",
+    ...sections.done.map((condition) => `- ${condition}`),
+    "",
+    "Reply:",
+    sections.reply,
+    "",
+    sections.closing,
   ];
   return lines.join("\n");
 }
