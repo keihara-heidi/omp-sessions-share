@@ -354,14 +354,18 @@ describe("buildPullRequestTask", () => {
       failedCheckNames: ["lint", "typecheck"],
     });
 
-    expect(prompt).toContain("Fix failing checks on PR #42.");
+    expect(prompt).toContain("Fix CI Failures");
     expect(prompt).toContain("PR: https://github.com/acme/app/pull/42");
     expect(prompt).toContain("Number: #42");
     expect(prompt).toContain("Base: main");
     expect(prompt).toContain("Head: feat/dashboards");
     expect(prompt).toContain("Failed checks: lint, typecheck.");
-    expect(prompt).toContain("Inspect the current worktree and PR state");
-    expect(prompt).toContain("Do not merge or push unless the user explicitly asks.");
+    expect(prompt).toContain("Inspect the failing CI checks first");
+    expect(prompt).toContain("Implement the minimal fix needed for that root cause.");
+    expect(prompt).toContain("Commit the fix if changes were required.");
+    expect(prompt).toContain("git push --set-upstream origin HEAD");
+    expect(prompt).toContain("Any required changes are committed and pushed");
+    expect(prompt).not.toContain("every unresolved review thread");
     expect(prompt).not.toContain("token");
     expect(prompt).not.toContain("gh auth");
 
@@ -374,8 +378,14 @@ describe("buildPullRequestTask", () => {
       }),
       "resolve_comments",
     );
+    expect(comments).toContain("Address Review Threads");
     expect(comments).toContain("Unresolved review threads: 4.");
-    expect(comments).toContain("Resolve review comments on PR #42.");
+    expect(comments).toContain("Comments can be wrong, outdated, or preference-only");
+    expect(comments).toContain("Only implement changes you independently agree with.");
+    expect(comments).toContain("Commit the fix set with meaningful commit boundaries.");
+    expect(comments).toContain("git push --set-upstream origin HEAD");
+    expect(comments).toContain("Leave uncertain threads open.");
+    expect(comments).toContain("do not resolve just to clear the queue");
 
     const conflicts = buildPullRequestTask(
       statusWith({
@@ -385,7 +395,32 @@ describe("buildPullRequestTask", () => {
       }),
       "fix_conflicts",
     );
+    expect(conflicts).toContain("Resolve Merge Conflicts");
     expect(conflicts).toContain("Mergeable state: conflicting.");
+    expect(conflicts).toContain("git fetch origin main");
+    expect(conflicts).toContain("git merge origin/main");
+    expect(conflicts).toContain("git diff --check");
+    expect(conflicts).toContain("Commit the merge resolution.");
+    expect(conflicts).toContain("git push --set-upstream origin HEAD");
+    expect(conflicts).not.toContain("every unresolved review thread");
+
+    const review = buildPullRequestTask(
+      statusWith({
+        ...status.pullRequest!,
+        readiness: "changes_requested",
+        reviewDecision: "changes_requested",
+        unresolvedThreads: 0,
+        checks: { state: "success", total: 1, failed: 0, pending: 0 },
+      }),
+      "address_review",
+    );
+    expect(review).toContain("Fix Requested Changes");
+    expect(review).toContain("Treat requests as claims");
+    expect(review).toContain("Only implement changes you independently agree with.");
+    expect(review).toContain("Commit the fix set with meaningful commit boundaries.");
+    expect(review).toContain("git push --set-upstream origin HEAD");
+    expect(review).toContain("a code fix or a direct evidence-backed rationale");
+    expect(review).not.toContain("every unresolved review thread");
   });
 
   test("throws without a pull request", () => {
