@@ -4,6 +4,7 @@ import type { SessionGroupKind, SessionSummary } from "@/lib/contracts";
 export type WorktreeGroup = {
   name: string;
   path: string;
+  branch?: string;
   sessions: SessionSummary[];
 };
 
@@ -18,7 +19,7 @@ export type SessionGroup = {
 function newest(sessions: SessionSummary[]): number {
   let max = 0;
   for (const s of sessions) {
-    const t = Date.parse(s.lastSeenAt);
+    const t = Date.parse(s.startedAt);
     if (t > max) max = t;
   }
   return max;
@@ -28,7 +29,8 @@ function newest(sessions: SessionSummary[]): number {
  * Group sessions into repository/folder → worktree → sessions. Fuse.js lets
  * each whitespace-delimited query term match a different repo, worktree,
  * title, or path field while tolerating small spelling mistakes. Results
- * retain hierarchy and newest-first ordering.
+ * retain hierarchy and newest-started-first ordering so heartbeats do not
+ * reshuffle groups on dashboard poll.
  */
 export function groupSessions(
   sessions: SessionSummary[],
@@ -41,6 +43,7 @@ export function groupSessions(
       "group.path",
       "worktree.name",
       "worktree.path",
+      "worktree.branch",
       "title",
       "cwd",
     ],
@@ -58,6 +61,7 @@ export function groupSessions(
             session.group.path,
             session.worktree.name,
             session.worktree.path,
+            session.worktree.branch ?? "",
             session.title,
             session.cwd,
           ].some((value) => value.toLowerCase().includes(needle)),
@@ -87,7 +91,12 @@ export function groupSessions(
     const worktreeKey = `${group.path}\0${worktree.path}`;
     let w = worktreesByPath.get(worktreeKey);
     if (!w) {
-      w = { name: worktree.name, path: worktree.path, sessions: [] };
+      w = {
+        name: worktree.name,
+        path: worktree.path,
+        ...(worktree.branch ? { branch: worktree.branch } : {}),
+        sessions: [],
+      };
       worktreesByPath.set(worktreeKey, w);
       g.worktrees.push(w);
     }
@@ -95,10 +104,14 @@ export function groupSessions(
   }
 
   const latestSession = (a: SessionSummary, b: SessionSummary) =>
-    Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt);
+    Date.parse(b.startedAt) - Date.parse(a.startedAt);
   const result = [...groups.values()];
   for (const g of result) {
-    for (const w of g.worktrees) w.sessions.sort(latestSession);
+    for (const w of g.worktrees) {
+      w.sessions.sort(latestSession);
+      const branch = w.sessions.find((s) => s.worktree.branch)?.worktree.branch;
+      if (branch) w.branch = branch;
+    }
     g.worktrees.sort((a, b) => newest(b.sessions) - newest(a.sessions));
   }
   result.sort(

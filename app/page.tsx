@@ -71,10 +71,10 @@ export default function DashboardPage() {
 
   return (
     <main className="mx-auto max-w-2xl px-4 pb-16 pt-6 sm:pt-10">
-      <header className="mb-6 flex items-baseline justify-between gap-4">
-        <h1 className="text-lg font-semibold tracking-tight">
+      <header className="mb-6 flex items-center justify-between gap-4">
+        <h1 className="text-base font-semibold">
           OMP Sessions{" "}
-          <span className="font-normal text-muted-foreground">
+          <span className="text-[11px] font-normal text-dim">
             on this Mac
           </span>
         </h1>
@@ -105,10 +105,10 @@ export default function DashboardPage() {
       )}
 
       {offline && (
-        <Alert className="mb-4 border-amber-500/40 bg-amber-500/10 text-amber-500 [&>svg]:text-amber-500">
+        <Alert className="mb-4 border-warn/40 bg-warn/10 text-warn [&>svg]:text-warn">
           <WifiOff aria-hidden />
           <AlertTitle>Connection lost</AlertTitle>
-          <AlertDescription className="text-amber-500/80">
+          <AlertDescription className="text-warn/80">
             Showing the last known sessions. Retrying…
           </AlertDescription>
         </Alert>

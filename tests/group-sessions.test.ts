@@ -13,7 +13,7 @@ function session(
     Partial<Pick<SessionSummary, "startedAt">>,
 ): SessionSummary {
   return {
-    startedAt: partial.startedAt ?? "2026-08-12T00:00:00.000Z",
+    startedAt: partial.startedAt ?? partial.lastSeenAt,
     ...partial,
   };
 }
@@ -30,10 +30,11 @@ describe("groupSessions", () => {
     name: "omp",
     path: "/Users/dev/omp",
   };
-  const mainWt = { name: "omp", path: "/Users/dev/omp" };
+  const mainWt = { name: "omp", path: "/Users/dev/omp", branch: "main" };
   const featureWt = {
     name: "feature-x",
     path: "/Users/dev/worktrees/feature-x",
+    branch: "feat/grouping",
   };
   const folderB = {
     kind: "folder" as const,
@@ -135,7 +136,7 @@ describe("groupSessions", () => {
     ]);
   });
 
-  test("orders groups, worktrees, and sessions by newest descendant", () => {
+  test("orders groups, worktrees, and sessions by newest started descendant", () => {
     // newest overall: sScratch (04:00) → folder first
     // within omp: main (03:00 via sMainNew) before feature (02:00)
     // within main: sMainNew then sMainOld
@@ -153,6 +154,29 @@ describe("groupSessions", () => {
       "s-main-new",
       "s-main-old",
     ]);
+  });
+
+  test("lastSeenAt heartbeats do not reorder groups or worktrees", () => {
+    const before = groupSessions(
+      [sMainOld, sMainNew, sFeature, sScratch],
+      "",
+    );
+    const after = groupSessions(
+      [
+        { ...sMainOld, lastSeenAt: "2026-08-12T09:00:00.000Z" },
+        sMainNew,
+        { ...sFeature, lastSeenAt: "2026-08-12T08:00:00.000Z" },
+        sScratch,
+      ],
+      "",
+    );
+    expect(after.map((g) => g.path)).toEqual(before.map((g) => g.path));
+    expect(after[1]!.worktrees.map((w) => w.path)).toEqual(
+      before[1]!.worktrees.map((w) => w.path),
+    );
+    expect(after[1]!.worktrees[0]!.sessions.map((s) => s.id)).toEqual(
+      before[1]!.worktrees[0]!.sessions.map((s) => s.id),
+    );
   });
 
   test("group name/path match includes entire group", () => {
@@ -185,6 +209,12 @@ describe("groupSessions", () => {
     expect(ids(byWtPath).sort()).toEqual(["s-feature", "s-feature-old"].sort());
   });
 
+  test("git branch match includes entire worktree", () => {
+    const byBranch = groupSessions(all, "feat/grouping");
+    expect(ids(byBranch).sort()).toEqual(["s-feature", "s-feature-old"].sort());
+    expect(byBranch[0]!.worktrees[0]!.branch).toBe("feat/grouping");
+  });
+
   test("session title/cwd match keeps only matching sessions", () => {
     const byTitle = groupSessions(all, "polish");
     expect(ids(byTitle)).toEqual(["s-main-new"]);
@@ -201,7 +231,9 @@ describe("groupSessions", () => {
 
 
   test("fuzzy terms can match across hierarchy and session fields", () => {
-    expect(ids(groupSessions(all, "om gruping"))).toEqual(["s-feature"]);
+    expect(ids(groupSessions(all, "om gruping")).sort()).toEqual(
+      ["s-feature", "s-feature-old"].sort(),
+    );
     expect(ids(groupSessions(all, "featuer")).sort()).toEqual(
       ["s-feature", "s-feature-old"].sort(),
     );

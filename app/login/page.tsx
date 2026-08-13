@@ -44,10 +44,10 @@ export default function LoginPage() {
 
   return (
     <main className="grid min-h-dvh place-items-center p-4">
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-sm border-border bg-card">
         <CardHeader>
-          <CardTitle>OMP Sessions</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-base font-semibold">OMP Sessions</CardTitle>
+          <CardDescription className="text-[11px] text-dim">
             Enter the dashboard password shown during setup.
           </CardDescription>
         </CardHeader>

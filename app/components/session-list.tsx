@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { CircleMinus, FolderCode, LoaderCircle, MonitorOff, SearchX } from "lucide-react";
+import { CircleMinus, FolderCode, GitBranch, LoaderCircle, MonitorOff, SearchX } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -132,16 +132,22 @@ export function SessionButton({
           <span
             aria-hidden
             data-stale={stale || undefined}
-            className="size-2 shrink-0 rounded-full bg-emerald-500 ring-[3px] ring-emerald-500/25 data-stale:bg-muted-foreground data-stale:ring-0"
+            className="size-2 shrink-0 rounded-full bg-ok ring-[3px] ring-ok/25 data-stale:bg-dim data-stale:ring-0"
           />
           <span className="truncate">{session.title}</span>
         </span>
-        <span className="flex w-full items-center gap-1.5 truncate font-mono text-xs text-muted-foreground">
+        <span className="flex w-full items-center gap-1.5 truncate font-mono text-[11px] text-dim">
           <FolderCode aria-hidden className="size-3.5 shrink-0" />
           <span className="truncate" dir="rtl">
             <bdi>{tildify(session.cwd)}</bdi>
           </span>
         </span>
+        {session.worktree.branch ? (
+          <span className="flex w-full items-center gap-1.5 truncate font-mono text-[11px] text-link">
+            <GitBranch aria-hidden className="size-3.5 shrink-0" />
+            <span className="truncate">{session.worktree.branch}</span>
+          </span>
+        ) : null}
         <span className="text-xs text-muted-foreground" aria-live="polite">
           {opening ? "Opening…" : freshness(session.lastSeenAt, now)}
         </span>

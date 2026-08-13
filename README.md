@@ -35,7 +35,7 @@ No Vercel, Redis, cloud database, or central service.
 2. Run `/share` to display the tailnet dashboard URL and password. Run `/collab` to display the active live-session link.
 3. On a tailnet-connected phone, open the URL and enter the password.
 4. Select a live session.
-5. To start another session, expand a folder or repository and tap **Start** beside a worktree. The Mac opens a Terminal running OMP in that worktree.
+5. To start another session, expand a folder or repository and tap **Start** beside a worktree. The Mac opens a Terminal running OMP in that worktree. On a repository group, tap **New worktree** to create a worktree and start OMP there. Superconductor (`sc`) is used when the repo is a managed project; otherwise a sibling `git worktree` is created. Superconductor is not required.
 6. Tap the remove button on a session to mark that live session inactive. This only removes it from the dashboard; its OMP history remains on the Mac.
 
 Dashboard hierarchy:
