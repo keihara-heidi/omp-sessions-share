@@ -30,6 +30,8 @@ import {
 
 import {
   type SessionSummary,
+  type PullRequestAction,
+  type WorktreePullRequestStatus,
   isJsonContentType,
   isNonEmptyString,
   isValidId,
@@ -37,6 +39,7 @@ import {
   jsonOk,
   parseCreateJoinRequestInput,
   parseCreateWorktreeInput,
+  parseLaunchPullRequestTaskInput,
   parseLaunchSessionInput,
   parseHostSessionHeartbeat,
   parseRequestDecision,
@@ -44,6 +47,11 @@ import {
   stripEncryptedLink,
 } from "../lib/contracts";
 import { createBlankWorktree } from "./sc-worktree";
+import {
+  buildPullRequestTask,
+  getWorktreePullRequestStatus,
+  isPullRequestActionApplicable,
+} from "./github-pr";
 import { killSessionProcess } from "./session-process";
 
 
@@ -231,29 +239,52 @@ async function handleEvents(
 }
 
 
-type LaunchOmp = (worktreePath: string) => Promise<void>;
+type LaunchOmp = (
+  worktreePath: string,
+  initialPrompt?: string,
+) => Promise<void>;
 
 type CreateWorktree = (advertisedPaths: string[]) => Promise<{ path: string }>;
 
-async function launchOmpInTerminal(worktreePath: string): Promise<void> {
+type ApiDeps = {
+  getWorktreePullRequestStatus?: (
+    worktreePath: string,
+  ) => Promise<WorktreePullRequestStatus>;
+  buildPullRequestTask?: (
+    status: WorktreePullRequestStatus,
+    action: PullRequestAction,
+  ) => string;
+  isPullRequestActionApplicable?: (
+    status: WorktreePullRequestStatus,
+    action: PullRequestAction,
+  ) => boolean;
+};
+
+async function launchOmpInTerminal(
+  worktreePath: string,
+  initialPrompt?: string,
+): Promise<void> {
   if (!(await stat(worktreePath)).isDirectory()) {
     throw new Error("worktree is not a directory");
   }
   const ompPath = join(homedir(), ".local", "bin", "omp");
-  const proc = Bun.spawn(
-    [
-      "/usr/bin/osascript",
-      "-e",
-      "on run argv",
-      "-e",
-      'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv',
-      "-e",
-      "end run",
-      worktreePath,
-      ompPath,
-    ],
-    { stdout: "ignore", stderr: "ignore" },
-  );
+  const script =
+    initialPrompt === undefined
+      ? 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv'
+      : 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " " & quoted form of item 3 of argv';
+  const argv = [
+    "/usr/bin/osascript",
+    "-e",
+    "on run argv",
+    "-e",
+    script,
+    "-e",
+    "end run",
+    worktreePath,
+    ompPath,
+  ];
+  if (initialPrompt !== undefined) argv.push(initialPrompt);
+  const proc = Bun.spawn(argv, { stdout: "ignore", stderr: "ignore" });
   if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
 }
 
@@ -322,6 +353,89 @@ async function handleCreateWorktree(
     return err("Could not create worktree", 500);
   }
 }
+
+function isAdvertisedWorktreePath(worktreePath: string): boolean {
+  return listSessions().some((session) => session.worktree.path === worktreePath);
+}
+
+async function handleWorktreePullRequest(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+
+  const path = new URL(req.url).searchParams.get("path");
+  if (!isNonEmptyString(path, 1024)) {
+    return err("Invalid path", 400);
+  }
+  if (!isAdvertisedWorktreePath(path)) {
+    return err("Worktree not found", 404);
+  }
+
+  const loadStatus = deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
+  try {
+    const status = await loadStatus(path);
+    return jsonOk(status, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return err("Could not load pull request status", 500);
+  }
+}
+
+async function handleLaunchPullRequestTask(
+  req: Request,
+  config: ShareConfig,
+  launchOmp: LaunchOmp,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const input = parseLaunchPullRequestTaskInput(parsedBody.value);
+  if (!input) return err("Invalid body", 400);
+  if (!isAdvertisedWorktreePath(input.worktreePath)) {
+    return err("Worktree not found", 404);
+  }
+
+  const loadStatus = deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
+  const buildTask = deps.buildPullRequestTask ?? buildPullRequestTask;
+  const actionApplicable =
+    deps.isPullRequestActionApplicable ?? isPullRequestActionApplicable;
+
+  let status: WorktreePullRequestStatus;
+  try {
+    status = await loadStatus(input.worktreePath);
+  } catch {
+    return err("Could not load pull request status", 500);
+  }
+
+  if (status.pullRequest === null) {
+    return err("No pull request for worktree", 400);
+  }
+  if (!actionApplicable(status, input.action)) {
+    return err("Action not applicable", 400);
+  }
+
+  let prompt: string;
+  try {
+    prompt = buildTask(status, input.action);
+  } catch {
+    return err("Could not start session", 500);
+  }
+
+  try {
+    await launchOmp(input.worktreePath, prompt);
+    return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return err("Could not start session", 500);
+  }
+}
+
 
 async function handleDeactivateSession(
   req: Request,
@@ -495,6 +609,7 @@ export async function handleApi(
   pathname: string,
   launchOmp: LaunchOmp = launchOmpInTerminal,
   createWorktree: CreateWorktree = createBlankWorktree,
+  deps: ApiDeps = {},
 ): Promise<Response | null> {
   if (!pathname.startsWith("/api/")) return null;
   const method = req.method.toUpperCase();
@@ -517,10 +632,15 @@ export async function handleApi(
   if (pathname === "/api/sessions/worktrees" && method === "POST") {
     return handleCreateWorktree(req, config, launchOmp, createWorktree);
   }
+  if (pathname === "/api/worktrees/pr" && method === "GET") {
+    return handleWorktreePullRequest(req, config, deps);
+  }
+  if (pathname === "/api/worktrees/pr-task" && method === "POST") {
+    return handleLaunchPullRequestTask(req, config, launchOmp, deps);
+  }
   if (pathname === "/api/events" && method === "GET") {
     return handleEvents(req, config);
   }
-
 
   {
     const m = /^\/api\/sessions\/([^/]+)\/deactivate$/.exec(pathname);

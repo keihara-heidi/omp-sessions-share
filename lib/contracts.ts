@@ -292,6 +292,76 @@ export function parseCreateWorktreeInput(v: unknown): CreateWorktreeInput | null
   return isNonEmptyString(groupPath, 1024) ? { groupPath } : null;
 }
 
+export type PullRequestReadiness =
+  | "ready"
+  | "draft"
+  | "checks_failed"
+  | "checks_pending"
+  | "changes_requested"
+  | "review_required"
+  | "conflicts"
+  | "unknown";
+
+export type PullRequestAction =
+  | "fix_checks"
+  | "resolve_comments"
+  | "fix_conflicts"
+  | "address_review";
+
+export type WorktreePullRequestStatus = {
+  worktreePath: string;
+  branch: string;
+  fetchedAt: string;
+  pullRequest: null | {
+    number: number;
+    title: string;
+    url: string;
+    baseBranch: string;
+    headBranch: string;
+    isDraft: boolean;
+    readiness: PullRequestReadiness;
+    mergeable: "mergeable" | "conflicting" | "unknown";
+    reviewDecision:
+      | "approved"
+      | "changes_requested"
+      | "review_required"
+      | "none";
+    checks: {
+      state: "success" | "failure" | "pending" | "none";
+      total: number;
+      failed: number;
+      pending: number;
+    };
+    unresolvedThreads: number;
+  };
+};
+
+/** Browser request to launch an OMP PR repair session in a live worktree. */
+export type LaunchPullRequestTaskInput = {
+  worktreePath: string;
+  action: PullRequestAction;
+};
+
+const PULL_REQUEST_ACTIONS: Record<PullRequestAction, true> = {
+  fix_checks: true,
+  resolve_comments: true,
+  fix_conflicts: true,
+  address_review: true,
+};
+
+export function parseLaunchPullRequestTaskInput(
+  v: unknown,
+): LaunchPullRequestTaskInput | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const { worktreePath, action } = v as Record<string, unknown>;
+  if (!isNonEmptyString(worktreePath, 1024)) return null;
+  if (typeof action !== "string" || !(action in PULL_REQUEST_ACTIONS)) {
+    return null;
+  }
+  return { worktreePath, action: action as PullRequestAction };
+}
+
+
 /** Browser create-request body. */
 export type CreateJoinRequestInput = {
   deviceName: string;

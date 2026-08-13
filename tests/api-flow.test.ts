@@ -562,3 +562,312 @@ describe("GET /api/events SSE", () => {
     });
   });
 });
+
+describe("pull request readiness and repair launch", () => {
+  const prStatus = {
+    worktreePath: "/tmp/phone-pr",
+    branch: "feature/pr",
+    fetchedAt: "2026-08-13T00:00:00.000Z",
+    pullRequest: {
+      number: 42,
+      title: "Fix things",
+      url: "https://github.com/acme/app/pull/42",
+      baseBranch: "main",
+      headBranch: "feature/pr",
+      isDraft: false,
+      readiness: "checks_failed" as const,
+      mergeable: "mergeable" as const,
+      reviewDecision: "none" as const,
+      checks: {
+        state: "failure" as const,
+        total: 3,
+        failed: 1,
+        pending: 0,
+      },
+      unresolvedThreads: 0,
+    },
+  };
+
+  test("GET /api/worktrees/pr requires auth and live worktree path", async () => {
+    const session = upsertSession({
+      id: "pr_status_source",
+      title: "PR session",
+      cwd: "/tmp/phone-pr",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const path = session.worktree.path;
+    const encoded = encodeURIComponent(path);
+
+    const unauthorized = await api(
+      new Request(`http://local/api/worktrees/pr?path=${encoded}`),
+    );
+    expect(unauthorized.status).toBe(401);
+
+    const cookie = await loginCookie();
+    const probed: string[] = [];
+    const unknown = await handleApi(
+      new Request(
+        `http://local/api/worktrees/pr?path=${encodeURIComponent("/tmp/not-advertised")}`,
+        { headers: { cookie } },
+      ),
+      config,
+      "/api/worktrees/pr",
+      async () => {
+        throw new Error("must not launch");
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+      {
+        getWorktreePullRequestStatus: async (worktreePath) => {
+          probed.push(worktreePath);
+          throw new Error("must not probe GitHub");
+        },
+      },
+    );
+    expect(unknown?.status).toBe(404);
+    expect(probed).toEqual([]);
+
+    const ok = await handleApi(
+      new Request(`http://local/api/worktrees/pr?path=${encoded}`, {
+        headers: { cookie },
+      }),
+      config,
+      "/api/worktrees/pr",
+      async () => {
+        throw new Error("must not launch");
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+      {
+        getWorktreePullRequestStatus: async (worktreePath) => ({
+          ...prStatus,
+          worktreePath,
+        }),
+      },
+    );
+    expect(ok?.status).toBe(200);
+    expect(await ok?.json()).toEqual({
+      data: { ...prStatus, worktreePath: path },
+    });
+  });
+
+  test("POST /api/worktrees/pr-task validates body, auth, path, and action", async () => {
+    const session = upsertSession({
+      id: "pr_task_source",
+      title: "PR task session",
+      cwd: "/tmp/phone-pr-task",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const worktreePath = session.worktree.path;
+    const body = { worktreePath, action: "fix_checks" };
+
+    const unauthorized = await api(
+      jsonRequest("http://local/api/worktrees/pr-task", body),
+    );
+    expect(unauthorized.status).toBe(401);
+
+    const cookie = await loginCookie();
+
+    const invalid = await handleApi(
+      jsonRequest(
+        "http://local/api/worktrees/pr-task",
+        { worktreePath, action: "merge_now" },
+        { cookie },
+      ),
+      config,
+      "/api/worktrees/pr-task",
+    );
+    expect(invalid?.status).toBe(400);
+    expect(await invalid?.json()).toEqual({ error: "Invalid body" });
+
+    const probed: string[] = [];
+    const unknown = await handleApi(
+      jsonRequest(
+        "http://local/api/worktrees/pr-task",
+        { worktreePath: "/tmp/not-advertised", action: "fix_checks" },
+        { cookie },
+      ),
+      config,
+      "/api/worktrees/pr-task",
+      async () => {
+        throw new Error("must not launch");
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+      {
+        getWorktreePullRequestStatus: async (path) => {
+          probed.push(path);
+          throw new Error("must not probe GitHub");
+        },
+      },
+    );
+    expect(unknown?.status).toBe(404);
+    expect(probed).toEqual([]);
+
+    const noPr = await handleApi(
+      jsonRequest("http://local/api/worktrees/pr-task", body, { cookie }),
+      config,
+      "/api/worktrees/pr-task",
+      async () => {
+        throw new Error("must not launch");
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+      {
+        getWorktreePullRequestStatus: async (path) => ({
+          worktreePath: path,
+          branch: "feature/pr",
+          fetchedAt: prStatus.fetchedAt,
+          pullRequest: null,
+        }),
+      },
+    );
+    expect(noPr?.status).toBe(400);
+    expect(await noPr?.json()).toEqual({
+      error: "No pull request for worktree",
+    });
+
+    const inapplicable = await handleApi(
+      jsonRequest(
+        "http://local/api/worktrees/pr-task",
+        { worktreePath, action: "fix_conflicts" },
+        { cookie },
+      ),
+      config,
+      "/api/worktrees/pr-task",
+      async () => {
+        throw new Error("must not launch");
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+      {
+        getWorktreePullRequestStatus: async (path) => ({
+          ...prStatus,
+          worktreePath: path,
+        }),
+      },
+    );
+    expect(inapplicable?.status).toBe(400);
+    expect(await inapplicable?.json()).toEqual({
+      error: "Action not applicable",
+    });
+  });
+
+  test("POST /api/worktrees/pr-task builds server prompt and launches OMP", async () => {
+    const session = upsertSession({
+      id: "pr_launch_source",
+      title: "PR launch session",
+      cwd: "/tmp/phone-pr-launch",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const worktreePath = session.worktree.path;
+    const cookie = await loginCookie();
+    const launched: Array<{ path: string; prompt?: string }> = [];
+    const prompts: Array<{ statusPath: string; action: string }> = [];
+
+    const launchedOk = await handleApi(
+      jsonRequest(
+        "http://local/api/worktrees/pr-task",
+        { worktreePath, action: "fix_checks" },
+        { cookie },
+      ),
+      config,
+      "/api/worktrees/pr-task",
+      async (path, initialPrompt) => {
+        launched.push({ path, prompt: initialPrompt });
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+      {
+        getWorktreePullRequestStatus: async (path) => ({
+          ...prStatus,
+          worktreePath: path,
+        }),
+        buildPullRequestTask: (status, action) => {
+          prompts.push({ statusPath: status.worktreePath, action });
+          return `Repair PR #${status.pullRequest?.number} via ${action}`;
+        },
+      },
+    );
+    expect(launchedOk?.status).toBe(200);
+    expect(await launchedOk?.json()).toEqual({ data: { ok: true } });
+    expect(prompts).toEqual([
+      { statusPath: worktreePath, action: "fix_checks" },
+    ]);
+    expect(launched).toEqual([
+      {
+        path: worktreePath,
+        prompt: "Repair PR #42 via fix_checks",
+      },
+    ]);
+
+    const clientPromptIgnored = await handleApi(
+      jsonRequest(
+        "http://local/api/worktrees/pr-task",
+        {
+          worktreePath,
+          action: "fix_checks",
+          prompt: "client-supplied should be ignored",
+        },
+        { cookie },
+      ),
+      config,
+      "/api/worktrees/pr-task",
+      async (path, initialPrompt) => {
+        launched.push({ path, prompt: initialPrompt });
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+      {
+        getWorktreePullRequestStatus: async (path) => ({
+          ...prStatus,
+          worktreePath: path,
+        }),
+        buildPullRequestTask: () => "server-built prompt only",
+      },
+    );
+    expect(clientPromptIgnored?.status).toBe(200);
+    expect(launched.at(-1)).toEqual({
+      path: worktreePath,
+      prompt: "server-built prompt only",
+    });
+  });
+
+  test("plain session launch still omits initial prompt", async () => {
+    const session = upsertSession({
+      id: "launch_no_prompt",
+      title: "Existing session",
+      cwd: "/tmp/phone-launch-plain",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const cookie = await loginCookie();
+    const calls: Array<{ path: string; prompt?: string; argc: number }> = [];
+    const res = await handleApi(
+      jsonRequest(
+        "http://local/api/sessions/launch",
+        { worktreePath: session.worktree.path },
+        { cookie },
+      ),
+      config,
+      "/api/sessions/launch",
+      async (worktreePath, initialPrompt) => {
+        calls.push({
+          path: worktreePath,
+          prompt: initialPrompt,
+          argc: initialPrompt === undefined ? 1 : 2,
+        });
+      },
+    );
+    expect(res?.status).toBe(200);
+    expect(calls).toEqual([
+      { path: session.worktree.path, prompt: undefined, argc: 1 },
+    ]);
+  });
+});

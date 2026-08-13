@@ -4,7 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import type { SessionSummary } from "@/lib/contracts";
+import type {
+  PullRequestAction,
+  SessionSummary,
+  WorktreePullRequestStatus,
+} from "@/lib/contracts";
 import { api, ApiError, postJson } from "./api";
 import { groupSessions, type WorktreeGroup } from "./group-sessions";
 
@@ -87,6 +91,34 @@ export function useLaunchSession(worktree: WorktreeGroup) {
       ),
     onSuccess: () => toast.success(`Started OMP in ${worktree.name}`),
     onError: (error) => toast.error(errorMessage(error, "Could not start session")),
+  });
+}
+
+/** PR readiness for one worktree; only repository worktrees with a branch query. */
+export function usePullRequestStatus(worktree: WorktreeGroup, enabled: boolean) {
+  return useQuery({
+    queryKey: ["pull-request", worktree.path],
+    queryFn: () =>
+      api<WorktreePullRequestStatus>(
+        `/api/worktrees/pr?path=${encodeURIComponent(worktree.path)}`,
+      ),
+    enabled,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+}
+
+export function useLaunchPullRequestTask(worktree: WorktreeGroup) {
+  return useMutation({
+    mutationFn: (action: PullRequestAction) =>
+      api<{ ok: true }>(
+        "/api/worktrees/pr-task",
+        postJson({ worktreePath: worktree.path, action }),
+      ),
+    onSuccess: () => toast.success("Started a PR repair session"),
+    onError: (error) =>
+      toast.error(errorMessage(error, "Could not start PR repair session")),
   });
 }
 

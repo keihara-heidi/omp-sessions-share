@@ -6,8 +6,15 @@ import type { SessionGroup, WorktreeGroup } from "@/app/components/group-session
 import { SessionButton, tildify } from "@/app/components/session-list";
 import {
   useCreateWorktree,
+  useLaunchPullRequestTask,
   useLaunchSession,
+  usePullRequestStatus,
 } from "@/app/components/use-sessions";
+import {
+  PrStatusError,
+  PrStatusPanel,
+  PrStatusSkeleton,
+} from "@/components/ds/pr-status";
 import {
   BusyIcon,
   GroupBody,
@@ -24,6 +31,37 @@ import {
   WorktreeHeading,
   WorktreeToolbar,
 } from "@/components/ds/session";
+
+function PullRequestSection({
+  worktree,
+  enabled,
+}: {
+  worktree: WorktreeGroup;
+  enabled: boolean;
+}) {
+  const status = usePullRequestStatus(worktree, enabled);
+  const launchTask = useLaunchPullRequestTask(worktree);
+
+  if (!enabled) return null;
+  if (status.isPending) return <PrStatusSkeleton />;
+  if (status.isError)
+    return (
+      <PrStatusError
+        onRetry={() => void status.refetch()}
+        retrying={status.isRefetching}
+      />
+    );
+  if (!status.data?.pullRequest) return null;
+
+  return (
+    <PrStatusPanel
+      pullRequest={status.data.pullRequest}
+      launching={launchTask.isPending}
+      busyAction={launchTask.isPending ? (launchTask.variables ?? null) : null}
+      onAction={(action) => launchTask.mutate(action)}
+    />
+  );
+}
 
 function WorktreeSection({
   group,
@@ -59,6 +97,10 @@ function WorktreeSection({
           {launch.isPending ? "Starting…" : "New session"}
         </TouchButton>
       </WorktreeToolbar>
+      <PullRequestSection
+        worktree={worktree}
+        enabled={group.kind === "repository" && Boolean(worktree.branch)}
+      />
       <SessionItems>
         {worktree.sessions.map((session) => (
           <li key={session.id}>
