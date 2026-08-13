@@ -24,6 +24,18 @@ export type SessionSummary = {
   worktree: SessionWorktree;
 };
 
+/** A worktree remembered by the dashboard even when it has no live sessions. */
+export type DashboardLocation = {
+  group: SessionGroup;
+  worktree: SessionWorktree;
+  lastSessionStartedAt: string;
+};
+
+export type SessionDashboard = {
+  sessions: SessionSummary[];
+  locations: DashboardLocation[];
+};
+
 export type JoinRequestStatus = "pending" | "approved" | "denied" | "expired";
 
 export type JoinRequest = {

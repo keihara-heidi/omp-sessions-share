@@ -245,6 +245,24 @@ describe("groupSessions", () => {
     expect(groupSessions([], "x")).toEqual([]);
   });
 
+  test("keeps and searches worktrees with no live sessions", () => {
+    const locations = [
+      {
+        group: repoA,
+        worktree: featureWt,
+        lastSessionStartedAt: "2026-08-12T02:00:00.000Z",
+      },
+    ];
+    const groups = groupSessions([], "", locations);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.worktrees).toHaveLength(1);
+    expect(groups[0]!.worktrees[0]).toMatchObject({
+      path: featureWt.path,
+      sessions: [],
+    });
+    expect(groupSessions([], "feature-x", locations)).toHaveLength(1);
+  });
+
   test("preserves session ids for mobile open targets", () => {
     const groups = groupSessions(all, "");
     const allIds = ids(groups);

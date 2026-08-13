@@ -25,8 +25,8 @@ export function SessionSkeletons() {
 
 export function NoSessions() {
   return (
-    <DashedEmpty icon={<MonitorOff aria-hidden />} title="No live sessions">
-      Start OMP in another terminal. It will appear here automatically.
+    <DashedEmpty icon={<MonitorOff aria-hidden />} title="No repositories or folders">
+      Start OMP in another terminal. Its location will remain available here.
     </DashedEmpty>
   );
 }

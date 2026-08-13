@@ -101,18 +101,20 @@ function WorktreeSection({
         worktree={worktree}
         enabled={group.kind === "repository" && Boolean(worktree.branch)}
       />
-      <SessionItems>
-        {worktree.sessions.map((session) => (
-          <li key={session.id}>
-            <SessionButton
-              session={session}
-              now={now}
-              openingId={openingId}
-              onSelect={onSelect}
-            />
-          </li>
-        ))}
-      </SessionItems>
+      {worktree.sessions.length > 0 ? (
+        <SessionItems>
+          {worktree.sessions.map((session) => (
+            <li key={session.id}>
+              <SessionButton
+                session={session}
+                now={now}
+                openingId={openingId}
+                onSelect={onSelect}
+              />
+            </li>
+          ))}
+        </SessionItems>
+      ) : null}
     </WorktreeBlock>
   );
 }
