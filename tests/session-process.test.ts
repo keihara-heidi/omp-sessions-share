@@ -15,9 +15,6 @@ describe("isKillableSessionCommand", () => {
     expect(isKillableSessionCommand("/Applications/Cursor.app/Contents/MacOS/Cursor")).toBe(
       false,
     );
-    expect(
-      isKillableSessionCommand("/Applications/Superconductor.app/Contents/MacOS/superconductor"),
-    ).toBe(false);
     expect(isKillableSessionCommand("Electron")).toBe(false);
     expect(isKillableSessionCommand("/System/Applications/Utilities/Terminal.app")).toBe(
       false,

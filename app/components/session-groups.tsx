@@ -4,6 +4,7 @@ import { Folder, FolderGit2, Play, Plus } from "lucide-react";
 import type { SessionSummary } from "@/lib/contracts";
 import type { SessionGroup, WorktreeGroup } from "@/app/components/group-sessions";
 import { SessionButton, tildify } from "@/app/components/session-list";
+import { DeleteWorktreeButton } from "@/app/components/worktree-delete-button";
 import {
   useCreateWorktree,
   useLaunchPullRequestTask,
@@ -31,7 +32,6 @@ import {
   WorktreeHeading,
   WorktreeToolbar,
 } from "@/components/ds/session";
-
 function PullRequestSection({
   worktree,
   enabled,
@@ -62,7 +62,6 @@ function PullRequestSection({
     />
   );
 }
-
 function WorktreeSection({
   group,
   worktree,
@@ -96,6 +95,7 @@ function WorktreeSection({
           <BusyIcon busy={launch.isPending} idle={<Play aria-hidden />} />
           {launch.isPending ? "Starting…" : "New session"}
         </TouchButton>
+        {group.kind === "repository" && worktree.path !== group.path ? <DeleteWorktreeButton group={group} worktree={worktree} /> : null}
       </WorktreeToolbar>
       <PullRequestSection
         worktree={worktree}
@@ -173,12 +173,11 @@ export function SessionGroups({
                 />
                 <GroupPath>{tildify(group.path)}</GroupPath>
               </GroupSummaryText>
-              <span className="self-center">
-                <CreateWorktreeButton
-                  groupPath={group.path}
-                  groupName={group.name}
-                />
-              </span>
+              {group.kind === "repository" ? (
+                <span className="self-center">
+                  <CreateWorktreeButton groupPath={group.path} groupName={group.name} />
+                </span>
+              ) : null}
             </GroupSummary>
             <GroupBody>
               {group.worktrees.map((worktree) => (

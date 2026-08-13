@@ -1,4 +1,4 @@
-/** Direct GitHub PR readiness via `gh` (no Superconductor dependency). */
+/** Direct GitHub PR readiness via the local `gh` CLI. */
 
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";

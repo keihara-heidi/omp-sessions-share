@@ -134,6 +134,35 @@ export function useCreateWorktree(groupPath: string, groupName: string) {
   });
 }
 
+export function useDeleteWorktree(
+  groupPath: string,
+  groupName: string,
+  worktree: WorktreeGroup,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () =>
+      api<{ ok: true }>("/api/sessions/worktrees", {
+        ...postJson({ groupPath, worktreePath: worktree.path }),
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (sessions) =>
+        sessions?.filter(
+          (session) =>
+            session.group.path !== groupPath ||
+            session.worktree.path !== worktree.path,
+        ),
+      );
+      queryClient.removeQueries({ queryKey: ["pull-request", worktree.path] });
+      toast.success(`Deleted ${worktree.name} from ${groupName}`);
+    },
+    onError: (error) =>
+      toast.error(errorMessage(error, "Could not delete worktree")),
+  });
+}
+
 export function useDeactivateSession(session: SessionSummary) {
   const queryClient = useQueryClient();
 

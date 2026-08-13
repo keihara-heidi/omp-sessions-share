@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
 import { handleApi } from "../daemon/api";
 import { DASHBOARD_COOKIE_NAME } from "../lib/auth";
-import { resetStoreForTests, upsertSession } from "../daemon/store";
+import { listSessions, resetStoreForTests, upsertSession } from "../daemon/store";
+import { createGitWorktree } from "../daemon/git-worktree";
 
 const config: ShareConfig = {
   version: 1,
@@ -17,6 +21,27 @@ const hostHeaders = {
   authorization: `Bearer ${config.hostToken}`,
   "content-type": "application/json",
 };
+
+function runGit(cwd: string, args: string[]): void {
+  const result = Bun.spawnSync(["git", "-C", cwd, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(new TextDecoder().decode(result.stderr).trim());
+  }
+}
+
+function initGitRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "omp-api-wt-"));
+  runGit(dir, ["init"]);
+  runGit(dir, ["config", "user.email", "test@example.com"]);
+  runGit(dir, ["config", "user.name", "test"]);
+  writeFileSync(join(dir, "README"), "init\n");
+  runGit(dir, ["add", "README"]);
+  runGit(dir, ["commit", "-m", "init"]);
+  return dir;
+}
 
 function jsonRequest(
   url: string,
@@ -167,57 +192,146 @@ describe("local daemon auth gates", () => {
   });
 
   test("creates a blank worktree only for a live repository group", async () => {
-    const session = upsertSession({
-      id: "create_source",
-      title: "Existing session",
-      cwd: "/tmp/phone-create",
-      startedAt: "2026-08-12T00:00:00.000Z",
-    });
-    const body = { groupPath: session.group.path };
+    const repo = initGitRepo();
+    try {
+      const session = upsertSession({
+        id: "create_source",
+        title: "Existing session",
+        cwd: repo,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      const body = { groupPath: session.group.path };
 
-    const unauthorized = await api(
-      jsonRequest("http://local/api/sessions/worktrees", body),
-    );
-    expect(unauthorized.status).toBe(401);
+      const unauthorized = await api(
+        jsonRequest("http://local/api/sessions/worktrees", body),
+      );
+      expect(unauthorized.status).toBe(401);
 
-    const cookie = await loginCookie();
-    const createdFor: string[][] = [];
-    const launchedPaths: string[] = [];
-    const created = await handleApi(
-      jsonRequest("http://local/api/sessions/worktrees", body, { cookie }),
-      config,
-      "/api/sessions/worktrees",
-      async (worktreePath) => {
-        launchedPaths.push(worktreePath);
-      },
-      async (advertisedPaths) => {
-        createdFor.push(advertisedPaths);
-        return { path: "/tmp/new-worktree" };
-      },
-    );
-    expect(created?.status).toBe(200);
-    expect(await created?.json()).toEqual({
-      data: { ok: true, path: "/tmp/new-worktree" },
-    });
-    expect(createdFor).toEqual([[session.group.path, session.worktree.path].filter((path, i, all) => all.indexOf(path) === i)]);
-    expect(launchedPaths).toEqual(["/tmp/new-worktree"]);
+      const cookie = await loginCookie();
+      const createdFor: string[][] = [];
+      const launchedPaths: string[] = [];
+      const created = await handleApi(
+        jsonRequest("http://local/api/sessions/worktrees", body, { cookie }),
+        config,
+        "/api/sessions/worktrees",
+        async (worktreePath) => {
+          launchedPaths.push(worktreePath);
+        },
+        async (advertisedPaths) => {
+          createdFor.push(advertisedPaths);
+          return { path: "/tmp/new-worktree" };
+        },
+      );
+      expect(created?.status).toBe(200);
+      expect(await created?.json()).toEqual({
+        data: { ok: true, path: "/tmp/new-worktree" },
+      });
+      expect(createdFor).toEqual([[session.group.path]]);
+      expect(launchedPaths).toEqual(["/tmp/new-worktree"]);
 
-    const unknown = await handleApi(
-      jsonRequest(
-        "http://local/api/sessions/worktrees",
-        { groupPath: "/tmp/not-advertised" },
-        { cookie },
-      ),
-      config,
-      "/api/sessions/worktrees",
-      async () => {
-        throw new Error("must not launch");
-      },
-      async () => {
-        throw new Error("must not create");
-      },
-    );
-    expect(unknown?.status).toBe(404);
+      const unknown = await handleApi(
+        jsonRequest(
+          "http://local/api/sessions/worktrees",
+          { groupPath: "/tmp/not-advertised" },
+          { cookie },
+        ),
+        config,
+        "/api/sessions/worktrees",
+        async () => {
+          throw new Error("must not launch");
+        },
+        async () => {
+          throw new Error("must not create");
+        },
+      );
+      expect(unknown?.status).toBe(404);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("deletes an advertised linked worktree and deactivates its sessions", async () => {
+    const repo = initGitRepo();
+    const linked = await createGitWorktree([repo]);
+    try {
+      const session = upsertSession({
+        id: "delete_source",
+        title: "Delete worktree",
+        cwd: linked.path,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      const cookie = await loginCookie();
+      const removed: Array<[string, string]> = [];
+      const res = await handleApi(
+        new Request("http://local/api/sessions/worktrees", {
+          method: "DELETE",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify({
+            groupPath: session.group.path,
+            worktreePath: session.worktree.path,
+          }),
+        }),
+        config,
+        "/api/sessions/worktrees",
+        undefined,
+        undefined,
+        {
+          removeWorktree: async (repositoryPath, worktreePath) => {
+            removed.push([repositoryPath, worktreePath]);
+          },
+        },
+      );
+
+      expect(res?.status).toBe(200);
+      expect(await res?.json()).toEqual({ data: { ok: true } });
+      expect(removed).toEqual([[session.group.path, session.worktree.path]]);
+      expect(listSessions()).toEqual([]);
+    } finally {
+      rmSync(linked.path, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses deletion when the worktree has uncommitted changes", async () => {
+    const repo = initGitRepo();
+    const linked = await createGitWorktree([repo]);
+    try {
+      const session = upsertSession({
+        id: "dirty_delete_source",
+        title: "Dirty worktree",
+        cwd: linked.path,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      const cookie = await loginCookie();
+      const res = await handleApi(
+        new Request("http://local/api/sessions/worktrees", {
+          method: "DELETE",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify({
+            groupPath: session.group.path,
+            worktreePath: session.worktree.path,
+          }),
+        }),
+        config,
+        "/api/sessions/worktrees",
+        undefined,
+        undefined,
+        {
+          removeWorktree: async () => {
+            throw new Error("Worktree has uncommitted changes");
+          },
+        },
+      );
+
+      expect(res?.status).toBe(409);
+      expect(await res?.json()).toEqual({
+        error: "Worktree has uncommitted changes",
+      });
+      expect(listSessions()).toHaveLength(1);
+    } finally {
+      rmSync(linked.path, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   test("returns 400 when worktree create is not a git repository", async () => {

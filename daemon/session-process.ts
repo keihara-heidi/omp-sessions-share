@@ -1,7 +1,7 @@
 /** SIGTERM only the session's omp pid. Never parent, group, or IDE. */
 
 const BLOCKED =
-  /superconductor|cursor|visual studio code|code helper|electron|iterm2?|terminal\.app|windowserver|launchd/i;
+  /cursor|visual studio code|code helper|electron|iterm2?|terminal\.app|windowserver|launchd/i;
 const ALLOWED = /(^|[\s/])(bun|omp|node)([\s/]|$)|pi-coding-agent/i;
 
 export function isKillableSessionCommand(command: string | null): boolean {
