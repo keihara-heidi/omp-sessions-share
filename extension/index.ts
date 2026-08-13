@@ -853,7 +853,31 @@ function isCollabCommand(text: string): boolean {
 	return /^\/collab(?:\s+start)?\s*$/i.test(text.trim());
 }
 
+/** OpenAI rejects replayed reasoning items whose `content` array is non-empty. */
+export function sanitizeOpenRouterResponsesPayload(payload: unknown): unknown {
+	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return payload;
+	const record = payload as Record<string, unknown>;
+	if (!Array.isArray(record.input)) return payload;
+
+	let changed = false;
+	const input = record.input.map(item => {
+		if (typeof item !== "object" || item === null || Array.isArray(item)) return item;
+		const inputItem = item as Record<string, unknown>;
+		if (inputItem.type !== "reasoning" || !Object.hasOwn(inputItem, "content")) return item;
+		const replayable = { ...inputItem };
+		delete replayable.content;
+		changed = true;
+		return replayable;
+	});
+	return changed ? { ...record, input } : payload;
+}
+
 export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
+	pi.on("before_provider_request", (event, ctx) => {
+		if (ctx.model?.provider !== "openrouter" || ctx.model.api !== "openai-responses") return;
+		return sanitizeOpenRouterResponsesPayload(event.payload);
+	});
+
 	// Install capture early so a manual `/collab` before delayed auto-start is still observed.
 	void installCollabBridge();
 

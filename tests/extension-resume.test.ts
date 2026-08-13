@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   disableBundledCollabQrCode,
   disableCollabQrCode,
+  sanitizeOpenRouterResponsesPayload,
   submitEditorCommandPreservingDraft,
 } from "../extension";
 
@@ -62,4 +63,28 @@ test("bundled OMP collab QR component is suppressed", async () => {
   } finally {
     await rm(packageRoot, { recursive: true, force: true });
   }
+});
+
+test("OpenRouter resume strips unsupported reasoning content", () => {
+  const payload = {
+    model: "openai/gpt-5.6-sol",
+    input: [
+      {
+        type: "reasoning",
+        id: "rs_saved",
+        summary: [],
+        content: [{ type: "reasoning_text", text: "private prior reasoning" }],
+      },
+      { role: "user", content: [{ type: "input_text", text: "continue" }] },
+    ],
+  };
+
+  expect(sanitizeOpenRouterResponsesPayload(payload)).toEqual({
+    ...payload,
+    input: [
+      { type: "reasoning", id: "rs_saved", summary: [] },
+      payload.input[1],
+    ],
+  });
+  expect(payload.input[0]).toHaveProperty("content");
 });
