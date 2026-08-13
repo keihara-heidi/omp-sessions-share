@@ -14,7 +14,9 @@ import {
   tryUpgradeRelay,
   type SocketData,
 } from "./relay";
+import { MacSleepInhibitor } from "./sleep-inhibitor";
 import { resolveWebRoot, serveStatic } from "./static";
+import { subscribeSessionChanges } from "./store";
 
 async function main(): Promise<void> {
   const configPath =
@@ -67,10 +69,18 @@ async function main(): Promise<void> {
     websocket: relayWebSocket,
   });
 
+  const sleepInhibitor = new MacSleepInhibitor();
+  const unsubscribeSessions = subscribeSessionChanges((sessions) => {
+    if (sessions.length > 0) sleepInhibitor.start();
+    else sleepInhibitor.stop();
+  });
+
   let stopping = false;
   function shutdown() {
     if (stopping) return;
     stopping = true;
+    unsubscribeSessions();
+    sleepInhibitor.stop();
     shutdownRelay();
     server.stop(true);
   }
