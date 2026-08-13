@@ -64,6 +64,7 @@ export default function DashboardPage() {
   const offline = sessions.isError && sessions.data !== undefined;
   const failed = sessions.isError && sessions.data === undefined;
   const now = Date.now();
+  const hasSessions = sessions.data !== undefined && sessions.data.length > 0;
 
   return (
     <Page>
@@ -74,25 +75,24 @@ export default function DashboardPage() {
           size="sm"
           onClick={() => logout.mutate()}
           disabled={logout.isPending}
+          aria-label="Log out"
         >
           <LogOut aria-hidden />
-          Log out
+          <span className="hidden sm:inline">Log out</span>
         </Button>
       </PageHeader>
 
-      {sessions.data !== undefined && sessions.data.length > 0 && (
-        <PageSearch value={query} onChange={setQuery} />
-      )}
+      {hasSessions ? <PageSearch value={query} onChange={setQuery} /> : null}
 
-      {offline && (
+      {offline ? (
         <WarnAlert title="Connection lost">
           Showing the last known sessions. Retrying…
         </WarnAlert>
-      )}
+      ) : null}
 
-      {sessions.isPending && <SessionSkeletons />}
+      {sessions.isPending ? <SessionSkeletons /> : null}
 
-      {failed && (
+      {failed ? (
         <FailAlert
           title="Can't load sessions"
           actionLabel="Try again"
@@ -102,10 +102,10 @@ export default function DashboardPage() {
         >
           The server is not responding. Check your connection.
         </FailAlert>
-      )}
+      ) : null}
 
-      {sessions.data !== undefined &&
-        (sessions.data.length === 0 ? (
+      {sessions.data !== undefined ? (
+        sessions.data.length === 0 ? (
           <NoSessions />
         ) : groups.length === 0 ? (
           <NoResults query={query} onClear={() => setQuery("")} />
@@ -116,11 +116,12 @@ export default function DashboardPage() {
             openingId={selected?.id ?? null}
             onSelect={setSelected}
           />
-        ))}
+        )
+      ) : null}
 
-      {selected && (
+      {selected ? (
         <JoinSession session={selected} onDone={() => setSelected(null)} />
-      )}
+      ) : null}
     </Page>
   );
 }

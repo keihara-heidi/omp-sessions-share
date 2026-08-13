@@ -11,16 +11,20 @@ import {
 } from "@/components/ui/typography";
 
 export function GroupStack({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col gap-7">{children}</div>;
+  return <div className="flex flex-col gap-3">{children}</div>;
 }
 
 export function GroupDisclosure({ children }: { children: ReactNode }) {
-  return <details className="group">{children}</details>;
+  return (
+    <details className="group/repo overflow-hidden rounded-lg border border-border bg-card text-card-foreground">
+      {children}
+    </details>
+  );
 }
 
 export function GroupSummary({ children }: { children: ReactNode }) {
   return (
-    <summary className="mb-3 flex cursor-pointer list-none items-start gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+    <summary className="flex min-h-11 cursor-pointer list-none items-start gap-2 px-3 py-2.5 touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
       {children}
     </summary>
   );
@@ -30,7 +34,7 @@ export function GroupChevron() {
   return (
     <ChevronRight
       aria-hidden
-      className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+      className="mt-1 size-4 shrink-0 text-dim transition-transform group-open/repo:rotate-90"
     />
   );
 }
@@ -50,14 +54,14 @@ export function GroupTitleRow({
 }) {
   return (
     <TypographyH2>
-      <span className="flex items-baseline gap-2">
-        <span className="size-4 shrink-0 self-center text-dim [&_svg]:size-4">
-          {icon}
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="size-4 shrink-0 text-dim [&_svg]:size-4">{icon}</span>
+        <span className="min-w-0 truncate">{name}</span>
+        <span className="inline-flex shrink-0 items-center rounded-md border border-border bg-secondary px-1.5 py-0.5">
+          <TypographyCount>
+            {count} {count === 1 ? "session" : "sessions"}
+          </TypographyCount>
         </span>
-        <span className="truncate">{name}</span>
-        <TypographyCount>
-          {count} {count === 1 ? "session" : "sessions"}
-        </TypographyCount>
       </span>
     </TypographyH2>
   );
@@ -73,7 +77,9 @@ export function GroupPath({ children }: { children: ReactNode }) {
 
 export function GroupBody({ children }: { children: ReactNode }) {
   return (
-    <div className="ml-2 flex flex-col gap-4 border-l pl-3 sm:pl-4">{children}</div>
+    <div className="flex flex-col gap-3 border-t border-border p-3">
+      {children}
+    </div>
   );
 }
 
@@ -84,12 +90,19 @@ export function WorktreeBlock({
   label: string;
   children: ReactNode;
 }) {
-  return <section aria-label={label}>{children}</section>;
+  return (
+    <section
+      aria-label={label}
+      className="overflow-hidden rounded-md border border-border bg-secondary"
+    >
+      {children}
+    </section>
+  );
 }
 
 export function WorktreeToolbar({ children }: { children: ReactNode }) {
   return (
-    <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
       {children}
     </div>
   );
@@ -110,7 +123,7 @@ export function WorktreeHeading({
       <span className="min-w-0 truncate">{name}</span>
       {branch ? <TypographyBranch>{branch}</TypographyBranch> : null}
       {path ? (
-        <span className="hidden sm:inline">
+        <span className="hidden min-w-0 sm:inline">
           <TypographyPath>{path}</TypographyPath>
         </span>
       ) : null}
@@ -119,18 +132,26 @@ export function WorktreeHeading({
 }
 
 export function SessionItems({ children }: { children: ReactNode }) {
-  return <ul className="flex list-none flex-col gap-2 p-0">{children}</ul>;
+  return (
+    <ul className="m-0 flex list-none flex-col gap-2 p-2 sm:p-2.5">
+      {children}
+    </ul>
+  );
 }
 
 export function TouchButton({
   wide,
+  primary,
   children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { wide?: boolean }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  wide?: boolean;
+  primary?: boolean;
+}) {
   return (
     <Button
       type="button"
-      variant="outline"
+      variant={primary ? "default" : "outline"}
       size={wide ? "touch" : "touch-inline"}
       {...props}
     >
@@ -142,5 +163,3 @@ export function TouchButton({
 export function BusyIcon({ busy, idle }: { busy: boolean; idle: ReactNode }) {
   return busy ? <LoaderCircle aria-hidden className="animate-spin" /> : idle;
 }
-
-

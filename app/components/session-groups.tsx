@@ -64,6 +64,7 @@ function WorktreeSection({
         />
         <TouchButton
           wide
+          primary
           onClick={launch}
           disabled={launching}
           aria-label={`Start OMP in ${worktree.name}`}
@@ -159,10 +160,12 @@ export function SessionGroups({
                 />
                 <GroupPath>{tildify(group.path)}</GroupPath>
               </GroupSummaryText>
-              <CreateWorktreeButton
-                groupPath={group.path}
-                groupName={group.name}
-              />
+              <span className="self-center">
+                <CreateWorktreeButton
+                  groupPath={group.path}
+                  groupName={group.name}
+                />
+              </span>
             </GroupSummary>
             <GroupBody>
               {group.worktrees.map((worktree) => (

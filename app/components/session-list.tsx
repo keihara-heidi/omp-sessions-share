@@ -47,7 +47,7 @@ export function NoResults({
       icon={<SearchX aria-hidden />}
       title="No matches"
       action={
-        <Button variant="outline" size="sm" onClick={onClear}>
+        <Button variant="outline" size="touch-inline" onClick={onClear}>
           Clear search
         </Button>
       }
@@ -106,7 +106,7 @@ export function SessionButton({
       title={session.title}
       path={tildify(session.cwd)}
       branch={session.worktree.branch}
-      meta={opening ? "Opening…" : freshness(session.lastSeenAt, now)}
+      meta={freshness(session.lastSeenAt, now)}
     />
   );
 }

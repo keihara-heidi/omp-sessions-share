@@ -17,7 +17,7 @@ type NoClass<T extends keyof HTMLElementTagNameMap> = Omit<
 export function Page(props: NoClass<"main">) {
   return (
     <main
-      className="mx-auto max-w-2xl px-4 pb-16 pt-6 sm:pt-10"
+      className="mx-auto w-full max-w-4xl px-4 pb-16 pt-5 sm:px-6 sm:pt-8"
       {...props}
     />
   );
@@ -26,7 +26,7 @@ export function Page(props: NoClass<"main">) {
 export function PageHeader(props: NoClass<"header">) {
   return (
     <header
-      className="mb-6 flex items-center justify-between gap-4"
+      className="mb-5 flex min-h-12 items-center justify-between gap-4 border-b border-border pb-3"
       {...props}
     />
   );
@@ -58,7 +58,7 @@ export function PageSearch({
   onChange: (value: string) => void;
 }) {
   return (
-    <InputGroup className="mb-6">
+    <InputGroup className="mb-5 h-10 bg-card sm:h-9">
       <InputGroupAddon>
         <Search aria-hidden />
       </InputGroupAddon>
@@ -94,16 +94,16 @@ export function SubmitButton({
 
 export function LoginCard({ children }: { children: ReactNode }) {
   return (
-    <div className="w-full max-w-sm rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10">
+    <div className="w-full max-w-sm rounded-lg border border-border bg-card py-5 text-sm text-card-foreground">
       {children}
     </div>
   );
 }
 
 export function LoginCardHeader({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col gap-1 px-4">{children}</div>;
+  return <div className="flex flex-col gap-1 px-5">{children}</div>;
 }
 
 export function LoginCardBody({ children }: { children: ReactNode }) {
-  return <div className="px-4 pt-4">{children}</div>;
+  return <div className="px-5 pt-5">{children}</div>;
 }

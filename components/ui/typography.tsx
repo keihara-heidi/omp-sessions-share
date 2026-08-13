@@ -11,7 +11,7 @@ export function TypographyH1(props: NoClass<"h1">) {
 }
 
 export function TypographyH2(props: NoClass<"h2">) {
-  return <h2 className="text-base font-semibold text-foreground" {...props} />;
+  return <h2 className="text-sm font-semibold text-foreground" {...props} />;
 }
 
 export function TypographyH3(props: NoClass<"h3">) {
@@ -49,7 +49,7 @@ export function TypographySmall(props: NoClass<"small">) {
 }
 
 export function TypographyMuted(props: NoClass<"p">) {
-  return <p className="text-[11px] text-dim" {...props} />;
+  return <p className="text-xs text-muted-foreground" {...props} />;
 }
 
 export function TypographyInlineCode(props: NoClass<"code">) {

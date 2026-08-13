@@ -140,11 +140,7 @@
     -webkit-font-smoothing: antialiased;
   }
   body {
-    @apply min-h-dvh text-foreground;
-    background:
-      radial-gradient(ellipse 80vw 50vh at 12% -18%, oklch(0.674 0.23 341 / 0.1), transparent 58%),
-      radial-gradient(ellipse 70vw 45vh at 108% -8%, oklch(0.817 0.112 205 / 0.07), transparent 58%),
-      var(--background);
+    @apply min-h-dvh bg-background text-foreground;
   }
   button:focus-visible,
   a:focus-visible,

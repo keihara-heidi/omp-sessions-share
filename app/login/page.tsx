@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
   TypographyError,
-  TypographyH1,
   TypographyMuted,
 } from "@/components/ui/typography";
 import {
@@ -17,6 +16,7 @@ import {
   LoginCardHeader,
   LoginForm,
   LoginScreen,
+  PageTitle,
   SubmitButton,
 } from "@/components/ds/page";
 import { api, ApiError, postJson } from "@/app/components/api";
@@ -51,9 +51,10 @@ export default function LoginPage() {
     <LoginScreen>
       <LoginCard>
         <LoginCardHeader>
-          <TypographyH1>OMP Sessions</TypographyH1>
+          <PageTitle kicker="on this Mac">OMP Sessions</PageTitle>
           <TypographyMuted>
-            Enter the dashboard password shown during setup.
+            Enter the dashboard password shown during setup to view and join
+            your sessions.
           </TypographyMuted>
         </LoginCardHeader>
         <LoginCardBody>
@@ -97,7 +98,7 @@ export default function LoginPage() {
             )}
             <form.Subscribe selector={(s) => s.isSubmitting}>
               {(isSubmitting) => (
-                <SubmitButton disabled={isSubmitting}>
+                <SubmitButton disabled={isSubmitting} aria-busy={isSubmitting}>
                   {isSubmitting && <Spinner />}
                   {isSubmitting ? "Signing in…" : "Sign in"}
                 </SubmitButton>
