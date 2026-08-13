@@ -1,8 +1,5 @@
 "use client";
 
-import { useForm } from "@tanstack/react-form";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -19,33 +16,10 @@ import {
   PageTitle,
   SubmitButton,
 } from "@/components/ds/page";
-import { api, ApiError, postJson } from "@/app/components/api";
+import { useLogin } from "./use-login";
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [serverError, setServerError] = useState<string | null>(null);
-
-  const form = useForm({
-    defaultValues: { password: "" },
-    onSubmit: async ({ value }) => {
-      setServerError(null);
-      try {
-        await api<{ ok: true }>(
-          "/api/auth/login",
-          postJson({ password: value.password }),
-        );
-        router.replace("/");
-      } catch (err) {
-        setServerError(
-          err instanceof ApiError
-            ? err.status === 401
-              ? "Wrong password."
-              : err.message
-            : "Can't reach the server. Check your connection.",
-        );
-      }
-    },
-  });
+  const { form, passwordValidators, serverError } = useLogin();
 
   return (
     <LoginScreen>
@@ -59,18 +33,12 @@ export default function LoginPage() {
         </LoginCardHeader>
         <LoginCardBody>
           <LoginForm
-            onSubmit={(e) => {
-              e.preventDefault();
+            onSubmit={(event) => {
+              event.preventDefault();
               form.handleSubmit();
             }}
           >
-            <form.Field
-              name="password"
-              validators={{
-                onSubmit: ({ value }) =>
-                  value.length === 0 ? "Password is required." : undefined,
-              }}
-            >
+            <form.Field name="password" validators={passwordValidators}>
               {(field) => (
                 <Field data-invalid={field.state.meta.errors.length > 0}>
                   <FieldLabel htmlFor={field.name}>Password</FieldLabel>
@@ -78,10 +46,11 @@ export default function LoginPage() {
                     id={field.name}
                     name={field.name}
                     type="password"
+                    className="h-11"
                     autoComplete="current-password"
                     autoFocus
                     value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onChange={(event) => field.handleChange(event.target.value)}
                     onBlur={field.handleBlur}
                     aria-invalid={field.state.meta.errors.length > 0}
                   />
@@ -93,13 +62,13 @@ export default function LoginPage() {
                 </Field>
               )}
             </form.Field>
-            {serverError && (
+            {serverError ? (
               <TypographyError role="alert">{serverError}</TypographyError>
-            )}
-            <form.Subscribe selector={(s) => s.isSubmitting}>
+            ) : null}
+            <form.Subscribe selector={(state) => state.isSubmitting}>
               {(isSubmitting) => (
                 <SubmitButton disabled={isSubmitting} aria-busy={isSubmitting}>
-                  {isSubmitting && <Spinner />}
+                  {isSubmitting ? <Spinner /> : null}
                   {isSubmitting ? "Signing in…" : "Sign in"}
                 </SubmitButton>
               )}

@@ -58,11 +58,8 @@ describe("resolveScTarget", () => {
     ).toEqual({ workspaceId: "ws-personal", projectId: "proj-omp" });
   });
 
-  test("returns unavailable project when it is the only match", () => {
-    expect(resolveScTarget(list, ["/tmp/blocked"])).toEqual({
-      workspaceId: "ws-personal",
-      projectId: "proj-blocked",
-    });
+  test("skips projects where blank worktree creation is unavailable", () => {
+    expect(resolveScTarget(list, ["/tmp/blocked"])).toBeNull();
   });
 
   test("returns null when no item matches", () => {
@@ -167,5 +164,25 @@ describe("createGitWorktree", () => {
     const result = await createBlankWorktree([repo]);
     created.push(result.path);
     expect(result.path.startsWith(`${realpathSync(repo)}-`)).toBe(true);
+  });
+
+  test("falls back to git when Superconductor rejects creation", async () => {
+    const commands: string[][] = [];
+    const result = await createBlankWorktree(
+      ["/Users/dev/superconductor/projects/omp-sessions-share"],
+      {
+        resolveScBin: () => "/fake/sc",
+        runSc: async (_bin, args) => {
+          commands.push(args);
+          if (args[0] === "workspace") return JSON.stringify(list);
+          throw new Error("Superconductor rejected creation");
+        },
+        createGitWorktree: async () => ({ path: "/tmp/git-fallback" }),
+      },
+    );
+
+    expect(result).toEqual({ path: "/tmp/git-fallback" });
+    expect(commands).toHaveLength(2);
+    expect(commands[1]).toContain("--background");
   });
 });

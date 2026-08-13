@@ -15,7 +15,12 @@ import {
   type ShareConfig,
 } from "../shared/config";
 import { resolveWebRoot, safeJoin } from "../daemon/static";
-import { setupLocalRuntime } from "../setup/install";
+import {
+  isLocalShareServerRunning,
+  setupLocalRuntime,
+  startLocalShareServer,
+  stopLocalShareServer,
+} from "../setup/install";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PKG = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8")) as {
@@ -169,6 +174,71 @@ describe("setup contract without system mutation", () => {
   test("setupLocalRuntime is importable and not invoked", () => {
     expect(typeof setupLocalRuntime).toBe("function");
     // Calling would touch launchctl/Tailscale/HOME — deliberately not invoked here.
+  });
+
+  test("dashboard server controls launchd and Tailscale without terminating OMP", async () => {
+    const home = await makeTemp("omp-share-control-");
+    const plist = path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "sh.omp.sessions-share.plist",
+    );
+    await mkdir(path.dirname(plist), { recursive: true });
+    await writeFile(plist, "fixture");
+
+    const commands: string[][] = [];
+    const runCommand = (argv: string[]) => {
+      commands.push(argv);
+      const loaded = argv[0] === "launchctl" && argv[1] === "print";
+      return { ok: !loaded, stdout: "", stderr: "", code: loaded ? 1 : 0 };
+    };
+    const options = { home, uid: 501, tailscaleBin: "tailscale", runCommand };
+
+    expect(isLocalShareServerRunning(options)).toBe(false);
+    commands.length = 0;
+    await startLocalShareServer(options);
+    await stopLocalShareServer(options);
+
+    expect(commands).toEqual([
+      ["launchctl", "print", "gui/501/sh.omp.sessions-share"],
+      ["launchctl", "enable", "gui/501/sh.omp.sessions-share"],
+      ["launchctl", "bootstrap", "gui/501", plist],
+      ["launchctl", "kickstart", "-k", "gui/501/sh.omp.sessions-share"],
+      ["tailscale", "serve", "--bg", "--https=8443", "--yes", "http://127.0.0.1:7466"],
+      ["tailscale", "serve", "--https=8443", "off"],
+      ["launchctl", "bootout", "gui/501/sh.omp.sessions-share"],
+    ]);
+    expect(commands.flat().join(" ")).not.toContain("collab");
+  });
+
+  test("starting an active dashboard leaves its daemon running", async () => {
+    const home = await makeTemp("omp-share-active-");
+    const plist = path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "sh.omp.sessions-share.plist",
+    );
+    await mkdir(path.dirname(plist), { recursive: true });
+    await writeFile(plist, "fixture");
+
+    const commands: string[][] = [];
+    const runCommand = (argv: string[]) => {
+      commands.push(argv);
+      return { ok: true, stdout: "", stderr: "", code: 0 };
+    };
+    await startLocalShareServer({
+      home,
+      uid: 501,
+      tailscaleBin: "tailscale",
+      runCommand,
+    });
+
+    expect(commands).toEqual([
+      ["launchctl", "print", "gui/501/sh.omp.sessions-share"],
+      ["tailscale", "serve", "--bg", "--https=8443", "--yes", "http://127.0.0.1:7466"],
+    ]);
   });
 
   test("CLI rejects secret-like argv before setup runs", async () => {

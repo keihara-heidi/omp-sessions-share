@@ -58,7 +58,7 @@ export function PageSearch({
   onChange: (value: string) => void;
 }) {
   return (
-    <InputGroup className="mb-5 h-10 bg-card sm:h-9">
+    <InputGroup className="mb-5 h-11 bg-card sm:h-9">
       <InputGroupAddon>
         <Search aria-hidden />
       </InputGroupAddon>
@@ -86,7 +86,7 @@ export function SubmitButton({
   ...props
 }: Omit<ComponentProps<typeof Button>, "className" | "size" | "type">) {
   return (
-    <Button type="submit" size="lg" className="w-full" {...props}>
+    <Button type="submit" size="lg" className="min-h-11 w-full" {...props}>
       {children}
     </Button>
   );

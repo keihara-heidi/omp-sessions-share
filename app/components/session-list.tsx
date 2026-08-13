@@ -1,13 +1,10 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import { MonitorOff, SearchX } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DashedEmpty, SessionSkeletonList } from "@/components/ds/feedback";
 import { SessionCard } from "@/components/ds/session-card";
-import { api } from "@/app/components/api";
+import { useDeactivateSession } from "@/app/components/use-sessions";
 import type { SessionSummary } from "@/lib/contracts";
 
 /** Shorten a home-rooted absolute path for display. */
@@ -29,8 +26,7 @@ export function SessionSkeletons() {
 export function NoSessions() {
   return (
     <DashedEmpty icon={<MonitorOff aria-hidden />} title="No live sessions">
-      Start an OMP session on the Mac and it will show up here within a few
-      seconds.
+      Start OMP in another terminal. It will appear here automatically.
     </DashedEmpty>
   );
 }
@@ -71,38 +67,17 @@ export function SessionButton({
 }) {
   const stale = now - Date.parse(session.lastSeenAt) > 15_000;
   const opening = openingId === session.id;
-  const [deactivating, setDeactivating] = useState(false);
-  const queryClient = useQueryClient();
-
-  async function deactivate() {
-    setDeactivating(true);
-    try {
-      await api<{ ok: true }>(
-        `/api/sessions/${encodeURIComponent(session.id)}/deactivate`,
-        { method: "POST" },
-      );
-      queryClient.setQueryData<SessionSummary[]>(["sessions"], (sessions) =>
-        sessions?.filter((item) => item.id !== session.id),
-      );
-      toast.success("Session removed");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not remove session");
-    } finally {
-      setDeactivating(false);
-    }
-  }
+  const deactivate = useDeactivateSession(session);
 
   return (
     <SessionCard
       stale={stale}
-      disabled={openingId !== null || deactivating}
+      disabled={openingId !== null || deactivate.isPending}
       busy={opening}
       onSelect={() => onSelect(session)}
-      onRemove={() => {
-        void deactivate();
-      }}
+      onRemove={() => deactivate.mutate()}
       removeLabel={`Remove ${session.title} from active sessions`}
-      removing={deactivating}
+      removing={deactivate.isPending}
       title={session.title}
       path={tildify(session.cwd)}
       branch={session.worktree.branch}

@@ -40,7 +40,7 @@ export function GroupChevron() {
 }
 
 export function GroupSummaryText({ children }: { children: ReactNode }) {
-  return <span className="min-w-0 flex-1">{children}</span>;
+  return <span className="min-w-0 flex-1 overflow-hidden">{children}</span>;
 }
 
 export function GroupTitleRow({
@@ -54,9 +54,9 @@ export function GroupTitleRow({
 }) {
   return (
     <TypographyH2>
-      <span className="flex min-w-0 items-center gap-2">
+      <span className="flex w-full min-w-0 items-center gap-2 overflow-hidden">
         <span className="size-4 shrink-0 text-dim [&_svg]:size-4">{icon}</span>
-        <span className="min-w-0 truncate">{name}</span>
+        <span className="min-w-0 flex-1 truncate">{name}</span>
         <span className="inline-flex shrink-0 items-center rounded-md border border-border bg-secondary px-1.5 py-0.5">
           <TypographyCount>
             {count} {count === 1 ? "session" : "sessions"}
@@ -69,7 +69,7 @@ export function GroupTitleRow({
 
 export function GroupPath({ children }: { children: ReactNode }) {
   return (
-    <span className="mt-0.5 block pl-6">
+    <span className="mt-0.5 block min-w-0 truncate pl-6">
       <TypographyPath>{children}</TypographyPath>
     </span>
   );
@@ -93,7 +93,7 @@ export function WorktreeBlock({
   return (
     <section
       aria-label={label}
-      className="overflow-hidden rounded-md border border-border bg-secondary"
+      className="min-w-0 overflow-hidden rounded-md border border-border bg-secondary"
     >
       {children}
     </section>
@@ -102,7 +102,7 @@ export function WorktreeBlock({
 
 export function WorktreeToolbar({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
+    <div className="flex min-w-0 flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
       {children}
     </div>
   );
@@ -120,12 +120,10 @@ export function WorktreeHeading({
   return (
     <TypographyH3>
       <GitBranch aria-hidden className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate">{name}</span>
-      {branch ? <TypographyBranch>{branch}</TypographyBranch> : null}
+      <span className="min-w-0 flex-1 truncate">{name}</span>
+      {branch ? <span className="min-w-0 max-w-[45%] overflow-hidden"><TypographyBranch>{branch}</TypographyBranch></span> : null}
       {path ? (
-        <span className="hidden min-w-0 sm:inline">
-          <TypographyPath>{path}</TypographyPath>
-        </span>
+        <span className="hidden min-w-0 max-w-[35%] overflow-hidden sm:block"><TypographyPath>{path}</TypographyPath></span>
       ) : null}
     </TypographyH3>
   );

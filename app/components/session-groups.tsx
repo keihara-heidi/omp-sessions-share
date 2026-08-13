@@ -1,12 +1,13 @@
 "use client";
 
 import { Folder, FolderGit2, Play, Plus } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
 import type { SessionSummary } from "@/lib/contracts";
 import type { SessionGroup, WorktreeGroup } from "@/app/components/group-sessions";
-import { api, postJson } from "@/app/components/api";
 import { SessionButton, tildify } from "@/app/components/session-list";
+import {
+  useCreateWorktree,
+  useLaunchSession,
+} from "@/app/components/use-sessions";
 import {
   BusyIcon,
   GroupBody,
@@ -37,22 +38,7 @@ function WorktreeSection({
   openingId: string | null;
   onSelect: (session: SessionSummary) => void;
 }) {
-  const [launching, setLaunching] = useState(false);
-
-  async function launch() {
-    setLaunching(true);
-    try {
-      await api<{ ok: true }>(
-        "/api/sessions/launch",
-        postJson({ worktreePath: worktree.path }),
-      );
-      toast.success(`Started OMP in ${worktree.name}`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not start session");
-    } finally {
-      setLaunching(false);
-    }
-  }
+  const launch = useLaunchSession(worktree);
 
   return (
     <WorktreeBlock label={`Worktree ${worktree.name}`}>
@@ -65,12 +51,12 @@ function WorktreeSection({
         <TouchButton
           wide
           primary
-          onClick={launch}
-          disabled={launching}
-          aria-label={`Start OMP in ${worktree.name}`}
+          onClick={() => launch.mutate()}
+          disabled={launch.isPending}
+          aria-label={`Start a new OMP session in ${worktree.name}`}
         >
-          <BusyIcon busy={launching} idle={<Play aria-hidden />} />
-          {launching ? "Starting…" : "Start"}
+          <BusyIcon busy={launch.isPending} idle={<Play aria-hidden />} />
+          {launch.isPending ? "Starting…" : "New session"}
         </TouchButton>
       </WorktreeToolbar>
       <SessionItems>
@@ -96,35 +82,20 @@ function CreateWorktreeButton({
   groupPath: string;
   groupName: string;
 }) {
-  const [creating, setCreating] = useState(false);
-
-  async function create() {
-    setCreating(true);
-    try {
-      await api<{ ok: true; path: string }>(
-        "/api/sessions/worktrees",
-        postJson({ groupPath }),
-      );
-      toast.success(`Created worktree for ${groupName}`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not create worktree");
-    } finally {
-      setCreating(false);
-    }
-  }
+  const create = useCreateWorktree(groupPath, groupName);
 
   return (
     <TouchButton
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        void create();
+        create.mutate();
       }}
-      disabled={creating}
+      disabled={create.isPending}
       aria-label={`Create worktree for ${groupName}`}
     >
-      <BusyIcon busy={creating} idle={<Plus aria-hidden />} />
-      {creating ? "Creating…" : "New"}
+      <BusyIcon busy={create.isPending} idle={<Plus aria-hidden />} />
+      {create.isPending ? "Creating…" : "New"}
     </TouchButton>
   );
 }
@@ -144,7 +115,7 @@ export function SessionGroups({
     <GroupStack>
       {groups.map((group) => {
         const count = group.worktrees.reduce(
-          (n, w) => n + w.sessions.length,
+          (n, worktree) => n + worktree.sessions.length,
           0,
         );
         const Icon = group.kind === "repository" ? FolderGit2 : Folder;

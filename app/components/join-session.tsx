@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { toast } from "sonner";
 import type { SessionSummary } from "@/lib/contracts";
-import { useJoinRequest } from "./use-join-request";
+import { useJoinSession } from "./use-join-session";
 
 export default function JoinSession({
   session,
@@ -12,19 +10,6 @@ export default function JoinSession({
   session: SessionSummary;
   onDone: () => void;
 }) {
-  const phase = useJoinRequest(session.id);
-
-  useEffect(() => {
-    if (phase !== "denied" && phase !== "expired" && phase !== "error") return;
-    const message =
-      phase === "expired"
-        ? "Session link timed out. Try again."
-        : phase === "denied"
-          ? "Session link could not be delivered."
-          : "Could not open session.";
-    toast.error(message);
-    onDone();
-  }, [onDone, phase]);
-
+  useJoinSession(session.id, onDone);
   return null;
 }

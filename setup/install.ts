@@ -97,6 +97,19 @@ function run(
   return { ok: code === 0, stdout, stderr, code };
 }
 
+type CommandResult = ReturnType<typeof run>;
+type CommandRunner = (
+  argv: string[],
+  opts?: { allowFailure?: boolean },
+) => CommandResult;
+
+export type LocalShareServerControlOptions = {
+  home?: string;
+  uid?: number;
+  runCommand?: CommandRunner;
+  tailscaleBin?: string;
+};
+
 function resolveTailscaleBin(): string {
   const candidates = [
     "tailscale",
@@ -291,6 +304,83 @@ async function configureTailscaleServe(tailscaleBin: string): Promise<void> {
     "--yes",
     LOCAL_ORIGIN,
   ]);
+}
+
+function localServerControl(
+  options: LocalShareServerControlOptions = {},
+): {
+  domain: string;
+  service: string;
+  plistPath: string;
+  runCommand: CommandRunner;
+} {
+  assertDarwin();
+  const home = options.home ?? requireHome();
+  const uid = options.uid ?? process.getuid!();
+  const domain = `gui/${uid}`;
+  return {
+    domain,
+    service: `${domain}/${LAUNCH_LABEL}`,
+    plistPath: path.join(home, "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`),
+    runCommand: options.runCommand ?? run,
+  };
+}
+
+/** Whether the dashboard daemon is currently loaded in launchd. */
+export function isLocalShareServerRunning(
+  options: LocalShareServerControlOptions = {},
+): boolean {
+  const control = localServerControl(options);
+  return control.runCommand(["launchctl", "print", control.service], { allowFailure: true }).ok;
+}
+
+/** Restore the dashboard daemon and its private Tailscale Serve endpoint. */
+export async function startLocalShareServer(
+  options: LocalShareServerControlOptions = {},
+): Promise<void> {
+  const control = localServerControl(options);
+  if (!(await pathExists(control.plistPath))) {
+    throw new Error("Dashboard service is not installed. Run omp-sessions-share setup first.");
+  }
+
+  const loaded = control.runCommand(["launchctl", "print", control.service], {
+    allowFailure: true,
+  }).ok;
+  if (!loaded) {
+    control.runCommand(["launchctl", "enable", control.service], { allowFailure: true });
+    control.runCommand(["launchctl", "bootstrap", control.domain, control.plistPath]);
+    control.runCommand(["launchctl", "kickstart", "-k", control.service]);
+  }
+  const tailscaleBin = options.tailscaleBin ?? resolveTailscaleBin();
+  control.runCommand([
+    tailscaleBin,
+    "serve",
+    "--bg",
+    `--https=${TAILSCALE_HTTPS_PORT}`,
+    "--yes",
+    LOCAL_ORIGIN,
+  ]);
+}
+
+/** Shut down dashboard ingress and daemon without terminating OMP. */
+export async function stopLocalShareServer(
+  options: LocalShareServerControlOptions = {},
+): Promise<void> {
+  const control = localServerControl(options);
+  let serveError: unknown;
+  try {
+    const tailscaleBin = options.tailscaleBin ?? resolveTailscaleBin();
+    control.runCommand([
+      tailscaleBin,
+      "serve",
+      `--https=${TAILSCALE_HTTPS_PORT}`,
+      "off",
+    ]);
+  } catch (err) {
+    serveError = err;
+  }
+  control.runCommand(["launchctl", "bootout", control.service], { allowFailure: true });
+  if (serveError) throw serveError;
 }
 
 /** Resolve pinned OMP source CLI from this package's dependency tree. */

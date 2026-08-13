@@ -4,8 +4,17 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-
 export type ScTarget = { workspaceId: string; projectId: string };
+
+type ScRunner = (bin: string, args: string[]) => Promise<string>;
+
+export type CreateBlankWorktreeOptions = {
+  resolveScBin?: () => string | null;
+  runSc?: ScRunner;
+  createGitWorktree?: (
+    advertisedPaths: string[],
+  ) => Promise<{ path: string }>;
+};
 
 type ListedProject = {
   id: string;
@@ -105,7 +114,7 @@ export function resolveScTarget(
       });
     }
   }
-  const hit = hits.find((candidate) => candidate.available) ?? hits[0];
+  const hit = hits.find((candidate) => candidate.available);
   return hit
     ? { workspaceId: hit.workspaceId, projectId: hit.projectId }
     : null;
@@ -136,7 +145,6 @@ export function parseCreatedWorktree(
   return path?.startsWith("/") ? { path, branch: branch ?? "" } : null;
 }
 
-
 function resolveScBin(): string | null {
   const candidates = [
     "sc",
@@ -154,6 +162,17 @@ function resolveScBin(): string | null {
   return null;
 }
 
+class ScCommandError extends Error {
+  constructor(
+    message: string,
+    readonly stdout: string,
+    readonly stderr: string,
+  ) {
+    super(message);
+    this.name = "ScCommandError";
+  }
+}
+
 async function runSc(bin: string, args: string[]): Promise<string> {
   const proc = Bun.spawn([bin, ...args], {
     stdout: "pipe",
@@ -165,7 +184,11 @@ async function runSc(bin: string, args: string[]): Promise<string> {
     proc.exited,
   ]);
   if (code !== 0) {
-    throw new Error(stderr.trim() || stdout.trim() || `sc ${args[0]} failed`);
+    throw new ScCommandError(
+      stderr.trim() || stdout.trim() || `sc ${args[0]} failed`,
+      stdout,
+      stderr,
+    );
   }
   return stdout;
 }
@@ -209,36 +232,59 @@ export async function createGitWorktree(advertisedPaths: string[]): Promise<{
   throw new Error(lastError);
 }
 
-export async function createBlankWorktree(advertisedPaths: string[]): Promise<{
-  path: string;
-}> {
-  const scBin = resolveScBin();
+export async function createBlankWorktree(
+  advertisedPaths: string[],
+  options: CreateBlankWorktreeOptions = {},
+): Promise<{ path: string }> {
+  const resolveBin = options.resolveScBin ?? resolveScBin;
+  const run = options.runSc ?? runSc;
+  const createGit = options.createGitWorktree ?? createGitWorktree;
+  const scBin = resolveBin();
   if (scBin) {
     let target: ScTarget | null = null;
     try {
       target = resolveScTarget(
-        JSON.parse(await runSc(scBin, ["workspace", "list", "--json"])),
+        JSON.parse(await run(scBin, ["workspace", "list", "--json"])),
         advertisedPaths,
       );
     } catch {
       target = null;
     }
     if (target) {
-      const created = parseCreatedWorktree(
-        await runSc(scBin, [
-          "worktree",
-          "create",
-          "--workspace",
-          target.workspaceId,
-          "--project",
-          target.projectId,
-          "--background",
-          "--json",
-        ]),
-      );
-      if (!created) throw new Error("Could not parse worktree create result");
-      return { path: created.path };
+      try {
+        const created = parseCreatedWorktree(
+          await run(scBin, [
+            "worktree",
+            "create",
+            "--workspace",
+            target.workspaceId,
+            "--project",
+            target.projectId,
+            "--background",
+            "--json",
+          ]),
+        );
+        if (!created) throw new Error("Could not parse worktree create result");
+        return { path: created.path };
+      } catch (error) {
+        // Superconductor preserves partial creations and emits recovery details.
+        // Reuse that worktree instead of creating a duplicate Git fallback.
+        if (error instanceof ScCommandError) {
+          const recovered =
+            parseCreatedWorktree(error.stdout) ??
+            parseCreatedWorktree(error.stderr);
+          if (recovered) return { path: recovered.path };
+        }
+        // A successful but unknown response may already represent a creation.
+        // Do not risk creating a duplicate worktree in that case.
+        if (
+          error instanceof Error &&
+          error.message === "Could not parse worktree create result"
+        ) {
+          throw error;
+        }
+      }
     }
   }
-  return createGitWorktree(advertisedPaths);
+  return createGit(advertisedPaths);
 }

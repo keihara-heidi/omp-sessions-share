@@ -1,15 +1,9 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FailAlert, WarnAlert } from "@/components/ds/feedback";
 import { Page, PageHeader, PageSearch, PageTitle } from "@/components/ds/page";
-import type { SessionSummary } from "@/lib/contracts";
-import { api, ApiError } from "@/app/components/api";
-import { groupSessions } from "@/app/components/group-sessions";
 import JoinSession from "@/app/components/join-session";
 import { SessionGroups } from "@/app/components/session-groups";
 import {
@@ -17,54 +11,31 @@ import {
   NoSessions,
   SessionSkeletons,
 } from "@/app/components/session-list";
+import { useSessionDashboard } from "@/app/components/use-sessions";
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<SessionSummary | null>(null);
-  const [query, setQuery] = useState("");
+  const {
+    clearQuery,
+    clearSelected,
+    failed,
+    groups,
+    hasSessions,
+    isLoggingOut,
+    isPending,
+    logOut,
+    now,
+    offline,
+    openingId,
+    query,
+    retry,
+    selected,
+    selectSession,
+    sessions,
+    setQuery,
+    unauthorized,
+  } = useSessionDashboard();
 
-  const sessions = useQuery({
-    queryKey: ["sessions"],
-    queryFn: () => api<SessionSummary[]>("/api/sessions"),
-    refetchInterval: 15_000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
-    retry: false,
-  });
-
-  useEffect(() => {
-    const events = new EventSource("/api/events");
-    const refresh = () =>
-      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
-    events.addEventListener("sessions", refresh);
-    return () => {
-      events.removeEventListener("sessions", refresh);
-      events.close();
-    };
-  }, [queryClient]);
-
-  const logout = useMutation({
-    mutationFn: () => api<{ ok: true }>("/api/auth/logout", { method: "POST" }),
-    onSettled: () => router.replace("/login"),
-  });
-
-  const groups = useMemo(
-    () => groupSessions(sessions.data ?? [], query),
-    [sessions.data, query],
-  );
-
-  const unauthorized =
-    sessions.error instanceof ApiError && sessions.error.status === 401;
-  useEffect(() => {
-    if (unauthorized) router.replace("/login");
-  }, [unauthorized, router]);
   if (unauthorized) return null;
-
-  const offline = sessions.isError && sessions.data !== undefined;
-  const failed = sessions.isError && sessions.data === undefined;
-  const now = Date.now();
-  const hasSessions = sessions.data !== undefined && sessions.data.length > 0;
 
   return (
     <Page>
@@ -73,8 +44,8 @@ export default function DashboardPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => logout.mutate()}
-          disabled={logout.isPending}
+          onClick={logOut}
+          disabled={isLoggingOut}
           aria-label="Log out"
         >
           <LogOut aria-hidden />
@@ -90,37 +61,35 @@ export default function DashboardPage() {
         </WarnAlert>
       ) : null}
 
-      {sessions.isPending ? <SessionSkeletons /> : null}
+      {isPending ? <SessionSkeletons /> : null}
 
       {failed ? (
         <FailAlert
           title="Can't load sessions"
           actionLabel="Try again"
-          onAction={() => {
-            void sessions.refetch();
-          }}
+          onAction={retry}
         >
           The server is not responding. Check your connection.
         </FailAlert>
       ) : null}
 
-      {sessions.data !== undefined ? (
-        sessions.data.length === 0 ? (
+      {sessions !== undefined ? (
+        sessions.length === 0 ? (
           <NoSessions />
         ) : groups.length === 0 ? (
-          <NoResults query={query} onClear={() => setQuery("")} />
+          <NoResults query={query} onClear={clearQuery} />
         ) : (
           <SessionGroups
             groups={groups}
             now={now}
-            openingId={selected?.id ?? null}
-            onSelect={setSelected}
+            openingId={openingId}
+            onSelect={selectSession}
           />
         )
       ) : null}
 
       {selected ? (
-        <JoinSession session={selected} onDone={() => setSelected(null)} />
+        <JoinSession session={selected} onDone={clearSelected} />
       ) : null}
     </Page>
   );

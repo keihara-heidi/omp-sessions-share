@@ -22,7 +22,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { loadShareConfig, type ShareConfig } from "../shared/config";
-import { setupLocalRuntime } from "../setup/install";
+import {
+	isLocalShareServerRunning,
+	setupLocalRuntime,
+	startLocalShareServer,
+	stopLocalShareServer,
+} from "../setup/install";
 import { encryptWithPublicJwk, type PublicKeyJwk } from "./crypto";
 
 // ---- local contracts (standalone; do not import root lib/) ----
@@ -112,7 +117,6 @@ const COLLAB_FRAGMENT_RE = /^[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{64}$/;
 const PUBLIC_COLLAB_WEB_ORIGIN = "https://my.omp.sh";
 const NATIVE_COLLAB_WS = "ws://127.0.0.1:7466";
 const NATIVE_COLLAB_COMMAND = `/collab ${NATIVE_COLLAB_WS}`;
-const NATIVE_COLLAB_STOP_COMMAND = "/collab stop";
 const LOOPBACK_HTTP_ORIGINS: Record<string, true> = {
 	"http://127.0.0.1:7466": true,
 	"http://localhost:7466": true,
@@ -134,6 +138,13 @@ let runtime: SessionRuntime | null = null;
 /** undefined = not loaded yet; null = missing/invalid. */
 let cachedConfig: ShareConfig | null | undefined;
 let setupPrompted = false;
+let serverControlQueue: Promise<void> = Promise.resolve();
+
+function enqueueServerControl(operation: () => Promise<void>): Promise<void> {
+	const next = serverControlQueue.then(operation, operation);
+	serverControlQueue = next.catch(() => undefined);
+	return next;
+}
 
 // ---- config ----
 
@@ -789,9 +800,17 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 		notifyError(rt.ctx, "Share: not configured. Confirm setup on session start, then restart OMP.");
 		return;
 	}
+
+	try {
+		await enqueueServerControl(() => startLocalShareServer());
+	} catch (err) {
+		notifyError(rt.ctx, `Share: failed to start dashboard: ${err instanceof Error ? err.message : String(err)}`);
+		return;
+	}
+	if (runtime !== rt || rt.shareStopped) return;
 	if (bridge.webLink) {
 		startPollLoop(rt);
-		notifyInfo(rt.ctx, "Share already running");
+		notifyInfo(rt.ctx, "Share dashboard started");
 		return;
 	}
 
@@ -802,6 +821,22 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 		return;
 	}
 	startPollLoop(rt);
+	notifyInfo(rt.ctx, "Share dashboard started");
+}
+
+async function stopShare(rt: SessionRuntime | null, ctx: ExtensionContext): Promise<void> {
+	if (rt) {
+		rt.shareStopped = true;
+		rt.inputFallbackArmed = false;
+		stopPoll();
+	}
+
+	try {
+		await enqueueServerControl(() => stopLocalShareServer());
+		notifyInfo(ctx, "Share dashboard stopped; OMP session is still running");
+	} catch (err) {
+		notifyError(ctx, `Share: failed to stop dashboard: ${err instanceof Error ? err.message : String(err)}`);
+	}
 }
 
 async function offerFirstRunSetup(ctx: ExtensionContext): Promise<ShareConfig | null> {
@@ -863,12 +898,13 @@ async function onSessionReady(ctx: ExtensionContext, api: ExtensionAPI): Promise
 		return;
 	}
 
+	rt.shareStopped = !isLocalShareServerRunning();
+
 	const { promise: delayDone, resolve: resolveDelay } = Promise.withResolvers<void>();
 	ctx.setTimeout(() => resolveDelay(), 75);
 	await delayDone;
 
 	const live = ensureRuntime(ctx, api);
-	if (live.shareStopped) return;
 	if (bridge.webLink) {
 		startPollLoop(live);
 		return;
@@ -955,12 +991,8 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 			return { handled: true };
 		}
 		if (shareCommand === "stop") {
-			if (rt) {
-				rt.shareStopped = true;
-				rt.inputFallbackArmed = false;
-				stopPoll();
-			}
-			return { text: NATIVE_COLLAB_STOP_COMMAND };
+			void stopShare(rt, ctx);
+			return { handled: true };
 		}
 		if (isShareCommand(text)) {
 			notifyError(ctx, "Usage: /share [stop]");
@@ -968,7 +1000,6 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 		}
 
 		if (isCollabCommand(text)) {
-			if (rt) rt.shareStopped = false;
 			if (bridge.webLink) {
 				notifyInfo(ctx, bridge.webLink);
 				return { handled: true };
