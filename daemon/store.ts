@@ -313,11 +313,23 @@ export function registerDashboardLocation(
     ? { ...location.worktree, branch }
     : location.worktree;
   const registered = { group: location.group, worktree, lastSessionStartedAt };
-  if (writeDashboardLocation(registered)) {
+  registerDashboardLocations([registered]);
+  return registered;
+}
+
+/** Register a discovery batch with one durable write and one listener update. */
+export function registerDashboardLocations(
+  locations: DashboardLocation[],
+): number {
+  let changed = 0;
+  for (const location of locations) {
+    if (writeDashboardLocation(location)) changed++;
+  }
+  if (changed > 0) {
     persistDashboardLocations();
     notifySessionListeners();
   }
-  return registered;
+  return changed;
 }
 
 export function listDashboardLocations(): DashboardLocation[] {

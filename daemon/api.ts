@@ -1,7 +1,7 @@
 /** /api/* handlers for the local single-tenant daemon. */
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 
 import type { ShareConfig } from "../shared/config";
@@ -27,12 +27,14 @@ import {
   listRequestsBySession,
   listSessions,
   registerDashboardLocation,
+  registerDashboardLocations,
   removeDashboardLocation,
   subscribeSessionChanges,
   upsertSession,
 } from "./store";
 
 import {
+  type DashboardLocation,
   type SessionSummary,
   type PullRequestAction,
   type WorktreePullRequestStatus,
@@ -188,6 +190,7 @@ async function reconcileDashboardLocations(): Promise<void> {
     current.push(location);
     repositoryLocations.set(location.group.path, current);
   }
+  const discoveredLocations: DashboardLocation[] = [];
   for (const locations of repositoryLocations.values()) {
     let advertisedPath: string | undefined;
     for (const location of locations) {
@@ -204,12 +207,20 @@ async function reconcileDashboardLocations(): Promise<void> {
           : latest,
       locations[0]!.lastSessionStartedAt,
     );
-    for (const worktree of listGitWorktrees(advertisedPath)) {
-      if (await exists(worktree.path)) {
-        registerDashboardLocation(worktree.path, lastSessionStartedAt);
-      }
+    for (const worktree of await listGitWorktrees(advertisedPath)) {
+      if (!(await exists(worktree.path))) continue;
+      discoveredLocations.push({
+        group: locations[0]!.group,
+        worktree: {
+          name: basename(worktree.path) || worktree.path,
+          path: worktree.path,
+          ...(worktree.branch ? { branch: worktree.branch } : {}),
+        },
+        lastSessionStartedAt,
+      });
     }
   }
+  registerDashboardLocations(discoveredLocations);
 
   const locations = listDashboardLocations();
   const availability = await Promise.all(
@@ -235,13 +246,35 @@ async function reconcileDashboardLocations(): Promise<void> {
   }
 }
 
+const DASHBOARD_RECONCILE_INTERVAL_MS = 15_000;
+let dashboardReconcilePromise: Promise<void> | undefined;
+let dashboardReconciledAt = 0;
+
+function reconcileDashboardLocationsCoalesced(): Promise<void> {
+  if (dashboardReconcilePromise) return dashboardReconcilePromise;
+  if (Date.now() - dashboardReconciledAt < DASHBOARD_RECONCILE_INTERVAL_MS) {
+    return Promise.resolve();
+  }
+  dashboardReconcilePromise = reconcileDashboardLocations().finally(() => {
+    dashboardReconciledAt = Date.now();
+    dashboardReconcilePromise = undefined;
+  });
+  return dashboardReconcilePromise;
+}
+
+/** Reset module-level reconciliation state between isolated API tests. */
+export function resetDashboardReconciliationForTests(): void {
+  dashboardReconcilePromise = undefined;
+  dashboardReconciledAt = 0;
+}
+
 async function handleDashboard(
   req: Request,
   config: ShareConfig,
 ): Promise<Response> {
   const auth = await requireDashboardAuth(req, config);
   if (!isAuthOk(auth)) return noStore(auth);
-  await reconcileDashboardLocations();
+  await reconcileDashboardLocationsCoalesced();
   return jsonOk(getSessionDashboard(), {
     headers: { "Cache-Control": "no-store" },
   });

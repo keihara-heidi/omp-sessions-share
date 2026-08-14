@@ -63,7 +63,7 @@ describe("Git worktrees", () => {
     const linked = await createGitWorktree([repo]);
     created.push(linked.path);
 
-    const listed = listGitWorktrees(linked.path);
+    const listed = await listGitWorktrees(linked.path);
     expect(listed.map((worktree) => worktree.path).sort()).toEqual(
       [realpathSync(repo), realpathSync(linked.path)].sort(),
     );

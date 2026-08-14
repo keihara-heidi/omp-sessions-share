@@ -18,6 +18,7 @@ import {
   getSessionDashboard,
   listRequestsBySession,
   listSessions,
+  registerDashboardLocations,
   removeDashboardLocation,
   resetStoreForTests,
   setNowForTests,
@@ -292,6 +293,30 @@ describe("subscribeSessionChanges", () => {
       startedAt: "2026-08-12T00:00:00.000Z",
     });
     expect(seen).toHaveLength(afterUnsub);
+  });
+
+  test("location discovery batch persists and emits once", () => {
+    let emits = 0;
+    const unsub = subscribeSessionChanges(() => {
+      emits++;
+    });
+    const changed = registerDashboardLocations([
+      {
+        group: { kind: "repository", name: "repo", path: "/tmp/repo" },
+        worktree: { name: "main", path: "/tmp/repo" },
+        lastSessionStartedAt: "2026-08-12T00:00:00.000Z",
+      },
+      {
+        group: { kind: "repository", name: "repo", path: "/tmp/repo" },
+        worktree: { name: "feature", path: "/tmp/repo-feature" },
+        lastSessionStartedAt: "2026-08-12T00:00:00.000Z",
+      },
+    ]);
+
+    expect(changed).toBe(2);
+    expect(emits).toBe(1);
+    expect(getSessionDashboard().locations).toHaveLength(2);
+    unsub();
   });
 
   test("pure lastSeenAt heartbeat does not emit", () => {

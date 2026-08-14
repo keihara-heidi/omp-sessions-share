@@ -31,19 +31,23 @@ export type GitWorktree = {
 };
 
 /** List every checkout registered in the repository containing `path`. */
-export function listGitWorktrees(path: string): GitWorktree[] {
-  const result = Bun.spawnSync(
+export async function listGitWorktrees(path: string): Promise<GitWorktree[]> {
+  const child = Bun.spawn(
     ["git", "-C", path, "worktree", "list", "--porcelain", "-z"],
     { stdout: "pipe", stderr: "ignore" },
   );
-  if (result.exitCode !== 0) return [];
+  const [exitCode, stdout] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).arrayBuffer(),
+  ]);
+  if (exitCode !== 0) return [];
 
   const worktrees: GitWorktree[] = [];
   let current: GitWorktree | undefined;
   const flush = () => {
     if (current) worktrees.push(current);
   };
-  for (const field of new TextDecoder().decode(result.stdout).split("\0")) {
+  for (const field of new TextDecoder().decode(stdout).split("\0")) {
     if (field.startsWith("worktree ")) {
       flush();
       current = { path: field.slice("worktree ".length) };

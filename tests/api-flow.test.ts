@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
-import { handleApi } from "../daemon/api";
+import { handleApi, resetDashboardReconciliationForTests } from "../daemon/api";
 import { DASHBOARD_COOKIE_NAME } from "../lib/auth";
 import {
   deactivateSession,
@@ -95,8 +95,14 @@ async function rsaPair(): Promise<CryptoKeyPair> {
   )) as CryptoKeyPair;
 }
 
-beforeEach(() => resetStoreForTests());
-afterEach(() => resetStoreForTests());
+beforeEach(() => {
+  resetStoreForTests();
+  resetDashboardReconciliationForTests();
+});
+afterEach(() => {
+  resetStoreForTests();
+  resetDashboardReconciliationForTests();
+});
 
 describe("local daemon auth gates", () => {
   test("password cookie login and reject bad password", async () => {
