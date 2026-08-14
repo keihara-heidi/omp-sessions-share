@@ -6,6 +6,7 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import ompSessionsShareExtension, {
   disableBundledCollabQrCode,
   disableCollabQrCode,
+  extractOsc8Urls,
   parseShareCommand,
   sanitizeOpenRouterResponsesPayload,
   submitEditorCommandPreservingDraft,
@@ -88,6 +89,14 @@ test("share command rejects unsupported arguments", () => {
   expect(parseShareCommand("/share start")).toBeNull();
   expect(parseShareCommand("/share stop now")).toBeNull();
   expect(parseShareCommand("/shared")).toBeNull();
+});
+
+test("collab capture extracts OSC-8 links with metadata", () => {
+  const link =
+    "http://127.0.0.1:7466/#ws://127.0.0.1:7466/r/dpBzOexmyixGfX0i7ni7Zw.eG7PT9tK-n4gK6UXYZ_hEV8EU1wkZDu11J7N2Pr0v-CN6GGSnQwVN-Ap3f2OcP8o";
+  const output = `\x1b]8;id=8b3e37d1;${link}\x07${link.slice("http://".length)}\x1b]8;;\x07`;
+
+  expect(extractOsc8Urls(output)).toEqual([link]);
 });
 
 test("auto-collab preserves a resumed session prefill", async () => {

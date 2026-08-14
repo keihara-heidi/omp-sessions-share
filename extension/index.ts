@@ -108,7 +108,7 @@ type SessionRuntime = {
 
 const BRIDGE_MAJOR = 17;
 const BRIDGE_MINOR = 2;
-const OSC8_RE = /\x1b\]8;;(https?:\/\/[^\x07]+)\x07/g;
+const OSC8_RE = /\x1b\]8;[^;]*;(https?:\/\/[^\x07\x1b]+)(?:\x07|\x1b\\)/g;
 const COLLAB_FRAGMENT_RE = /^[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{64}$/;
 const PUBLIC_COLLAB_WEB_ORIGIN = "https://my.omp.sh";
 const NATIVE_COLLAB_WS = "ws://127.0.0.1:7466";
@@ -307,14 +307,16 @@ function clearWebLink(): void {
 	stopPoll();
 }
 
+export function extractOsc8Urls(text: string): string[] {
+	OSC8_RE.lastIndex = 0;
+	return Array.from(text.matchAll(OSC8_RE), match => match[1]).filter((url): url is string => Boolean(url));
+}
+
 function scanTextForCollabLink(text: string): void {
-	if (!text.includes("\x1b]8;;") && !text.includes("Collab stopped") && !text.includes("Collab ended:")) {
+	if (!text.includes("\x1b]8;") && !text.includes("Collab stopped") && !text.includes("Collab ended:")) {
 		return;
 	}
-	OSC8_RE.lastIndex = 0;
-	for (const match of text.matchAll(OSC8_RE)) {
-		if (match[1]) noteWebLink(match[1]);
-	}
+	for (const url of extractOsc8Urls(text)) noteWebLink(url);
 	if (/\bCollab stopped\b/.test(text) || /\bCollab ended:/.test(text)) {
 		clearWebLink();
 	}
@@ -435,14 +437,13 @@ async function installCollabBridge(): Promise<{ ok: boolean; reason?: string }> 
 	const version = readPackageVersion(pkgRoot);
 	bridge.version = version;
 	bridge.versionOk = versionCompatible(version);
+	installStdoutCapture();
 
 	if (!bridge.versionOk) {
 		bridge.reason = `Share bridge requires @oh-my-pi/pi-coding-agent ${BRIDGE_MAJOR}.${BRIDGE_MINOR}.x (found ${version ?? "unknown"})`;
-		installStdoutCapture();
 		return { ok: false, reason: bridge.reason };
 	}
 
-	installStdoutCapture();
 	if (pkgRoot) {
 		disableBundledCollabQrCode(pkgRoot);
 		await disableCollabQrCode(pkgRoot);
