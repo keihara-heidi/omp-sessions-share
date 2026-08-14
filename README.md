@@ -1,6 +1,6 @@
 # omp-sessions-share
 
-Private, live OMP sessions on your phone through Tailscale. OMP sessions start native `/collab` automatically, appear in a local dashboard, and release an encrypted collab link after the dashboard password is accepted.
+Private, live OMP sessions on your phone through Tailscale. OMP starts native `/collab` automatically; `/share` opts the session into the local dashboard and releases its encrypted collab link after the dashboard password is accepted.
 
 OMP-only: upstream Pi does not provide `/collab`.
 
@@ -17,7 +17,7 @@ OMP-only: upstream Pi does not provide `/collab`.
 omp plugin install github:keihara-heidi/omp-sessions-share
 ```
 
-Start OMP. First run asks permission to set up the local runtime. Accept, then restart super.engineering once (or open a new shell) and run `omp` again.
+Start OMP and run `/share`. On first use, accept the prompt to set up the local runtime.
 
 Setup creates:
 
@@ -31,8 +31,8 @@ No Vercel, Redis, cloud database, or central service.
 
 ## Use
 
-1. Run `omp`. Native `/collab` starts automatically.
-2. Run `/share` to start the dashboard service and share the current session. Run `/share stop` to shut down the dashboard service without terminating OMP. Run `/collab` to display the active live-session link.
+1. Run `omp`. Native `/collab` starts automatically, while dashboard sharing stays off.
+2. Run `/share` to start the dashboard service and add the current session. Run `/share stop` to shut down dashboard sharing without terminating OMP or its collab session. Run `/collab` to display the active live-session link.
 3. On a tailnet-connected phone, open the URL and enter the password.
 4. Select a live session.
 5. To start another session, expand a folder or repository and tap **Start** beside a worktree. The Mac opens a Terminal running OMP in that worktree. On a repository group, tap **New worktree** to create a sibling linked worktree with `git worktree` and start OMP there.

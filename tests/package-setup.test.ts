@@ -17,6 +17,7 @@ import {
 } from "../shared/config";
 import { resolveWebRoot, safeJoin } from "../daemon/static";
 import {
+  cleanupLegacyLocalShareRelay,
   isLocalShareServerRunning,
   setupLocalRuntime,
   startLocalShareServer,
@@ -175,6 +176,40 @@ describe("setup contract without system mutation", () => {
   test("setupLocalRuntime is importable and not invoked", () => {
     expect(typeof setupLocalRuntime).toBe("function");
     // Calling would touch launchctl/Tailscale/HOME — deliberately not invoked here.
+  });
+
+  test("legacy relay cleanup unloads the job and removes restartable assets", async () => {
+    const home = await makeTemp("omp-share-legacy-home-");
+    const agent = await makeTemp("omp-share-legacy-agent-");
+    const plist = path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "sh.omp.sessions-share-relay.plist",
+    );
+    const runtime = path.join(agent, "omp-sessions-share-relay");
+    await mkdir(path.dirname(plist), { recursive: true });
+    await mkdir(runtime, { recursive: true });
+    await writeFile(plist, "fixture");
+    await writeFile(path.join(runtime, "server.ts"), "fixture");
+
+    const commands: string[][] = [];
+    const removed = await cleanupLegacyLocalShareRelay({
+      home,
+      agentDir: agent,
+      uid: 501,
+      runCommand(argv) {
+        commands.push(argv);
+        return { ok: true, stdout: "", stderr: "", code: 0 };
+      },
+    });
+
+    expect(removed).toBe(true);
+    expect(commands).toEqual([
+      ["launchctl", "bootout", "gui/501/sh.omp.sessions-share-relay"],
+    ]);
+    await expect(stat(plist)).rejects.toThrow();
+    await expect(stat(runtime)).rejects.toThrow();
   });
 
   test("dashboard server controls launchd and Tailscale without terminating OMP", async () => {

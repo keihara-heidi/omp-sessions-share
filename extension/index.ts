@@ -23,7 +23,7 @@ import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { loadShareConfig, type ShareConfig } from "../shared/config";
 import {
-	isLocalShareServerRunning,
+	cleanupLegacyLocalShareRelay,
 	setupLocalRuntime,
 	startLocalShareServer,
 	stopLocalShareServer,
@@ -60,7 +60,6 @@ type ApiOk<T> = { data: T };
 type ApiErr = { error: string };
 
 type HostApiResult<T> = { ok: true; data: T } | { ok: false; error: string };
-type UserMessageContent = Parameters<ExtensionAPI["sendUserMessage"]>[0];
 
 type CollabHostLike = {
 	readonly webLink: string;
@@ -97,16 +96,13 @@ type SessionRuntime = {
 	cwd: string;
 	title: string;
 	ctx: ExtensionContext;
-	api: ExtensionAPI;
 	pollTimer?: Timer;
 	polling: boolean;
 	lastHeartbeatAt: number;
 	prompted: Set<string>;
 	busy: Set<string>;
-	inputFallbackArmed: boolean;
-	autoStartAttempted: boolean;
+	collabStartAttempted: boolean;
 	shareStopped: boolean;
-	pendingUserContent: UserMessageContent | null;
 	lastErrorAt: number;
 };
 
@@ -117,6 +113,7 @@ const COLLAB_FRAGMENT_RE = /^[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{64}$/;
 const PUBLIC_COLLAB_WEB_ORIGIN = "https://my.omp.sh";
 const NATIVE_COLLAB_WS = "ws://127.0.0.1:7466";
 const NATIVE_COLLAB_COMMAND = `/collab ${NATIVE_COLLAB_WS}`;
+const JOIN_REQUEST_POLL_MS = 1_000;
 const LOOPBACK_HTTP_ORIGINS: Record<string, true> = {
 	"http://127.0.0.1:7466": true,
 	"http://localhost:7466": true,
@@ -165,7 +162,7 @@ function applyConfigToBridge(config: ShareConfig): void {
 	if (!guest) return;
 	bridge.webLink = guest;
 	settleWaiters(guest);
-	if (!runtime) return;
+	if (!runtime || runtime.shareStopped) return;
 	startPollLoop(runtime);
 	notifyInfo(
 		runtime.ctx,
@@ -563,11 +560,10 @@ function clearRuntime(): void {
 	runtime = null;
 }
 
-function ensureRuntime(ctx: ExtensionContext, api: ExtensionAPI): SessionRuntime {
+function ensureRuntime(ctx: ExtensionContext): SessionRuntime {
 	const sessionId = ctx.sessionManager.getSessionId();
 	if (runtime && runtime.sessionId === sessionId) {
 		runtime.ctx = ctx;
-		runtime.api = api;
 		runtime.cwd = sessionCwdOf(ctx);
 		runtime.title = sessionTitleOf(ctx);
 		return runtime;
@@ -579,13 +575,10 @@ function ensureRuntime(ctx: ExtensionContext, api: ExtensionAPI): SessionRuntime
 		cwd: sessionCwdOf(ctx),
 		title: sessionTitleOf(ctx),
 		ctx,
-		api,
 		prompted: new Set(),
 		busy: new Set(),
-		inputFallbackArmed: false,
-		autoStartAttempted: false,
-		shareStopped: false,
-		pendingUserContent: null,
+		collabStartAttempted: false,
+		shareStopped: true,
 		lastErrorAt: 0,
 		polling: false,
 		lastHeartbeatAt: 0,
@@ -600,7 +593,7 @@ function startPollLoop(rt: SessionRuntime): void {
 	void pollOnce(rt);
 	rt.pollTimer = rt.ctx.setInterval(() => {
 		void pollOnce(rt);
-	}, 250);
+	}, JOIN_REQUEST_POLL_MS);
 }
 
 async function pollOnce(rt: SessionRuntime): Promise<void> {
@@ -689,19 +682,6 @@ async function handleJoinRequest(rt: SessionRuntime, req: JoinRequest): Promise<
 	}
 }
 
-function flushPendingUserText(rt: SessionRuntime): void {
-	const content = rt.pendingUserContent;
-	rt.pendingUserContent = null;
-	if (content === null) return;
-	if (typeof content === "string" && !content.trim()) return;
-	if (Array.isArray(content) && content.length === 0) return;
-	try {
-		rt.api.sendUserMessage(content);
-	} catch (err) {
-		notifyError(rt.ctx, `Share re-queue input failed: ${err instanceof Error ? err.message : String(err)}`);
-	}
-}
-
 type EditorTextApi = Pick<ExtensionContext["ui"], "getEditorText" | "setEditorText">;
 
 /** Submit an internal command without consuming a resumed session's editor prefill. */
@@ -764,8 +744,11 @@ export async function submitEditorCommandPreservingDraft(
 	return false;
 }
 
-async function tryTriggerNativeCollab(rt: SessionRuntime): Promise<boolean> {
-	if (bridge.webLink) return true;
+async function tryTriggerNativeCollab(
+	rt: SessionRuntime,
+	waitForGuestLink = true,
+): Promise<boolean> {
+	if (bridge.rawWebLink || bridge.webLink) return true;
 	if (!rt.ctx.hasUI) return false;
 
 	const submitted = await submitEditorCommandPreservingDraft(
@@ -778,6 +761,7 @@ async function tryTriggerNativeCollab(rt: SessionRuntime): Promise<boolean> {
 			}),
 	);
 	if (!submitted) return false;
+	if (!waitForGuestLink) return true;
 
 	const link = await waitForWebLink(12_000, rt.ctx);
 	return Boolean(link);
@@ -785,26 +769,32 @@ async function tryTriggerNativeCollab(rt: SessionRuntime): Promise<boolean> {
 
 async function startShare(rt: SessionRuntime): Promise<void> {
 	rt.shareStopped = false;
-	rt.inputFallbackArmed = false;
 
-	const installed = await installCollabBridge();
-	if (runtime !== rt || rt.shareStopped) return;
-	if (!installed.ok) {
-		notifyError(rt.ctx, `Share: ${installed.reason ?? "collab bridge unavailable"}`);
-		return;
-	}
-
-	const config = await getShareConfig();
+	let config = await getShareConfig();
 	if (runtime !== rt || rt.shareStopped) return;
 	if (!config) {
-		notifyError(rt.ctx, "Share: not configured. Confirm setup on session start, then restart OMP.");
+		config = await offerFirstRunSetup(rt.ctx);
+		if (runtime !== rt || rt.shareStopped) return;
+	}
+	if (!config) {
+		rt.shareStopped = true;
 		return;
 	}
 
 	try {
+		await cleanupLegacyLocalShareRelay();
 		await enqueueServerControl(() => startLocalShareServer());
 	} catch (err) {
 		notifyError(rt.ctx, `Share: failed to start dashboard: ${err instanceof Error ? err.message : String(err)}`);
+		rt.shareStopped = true;
+		return;
+	}
+	if (runtime !== rt || rt.shareStopped) return;
+
+	const installed = await installCollabBridge();
+	if (!installed.ok) {
+		notifyError(rt.ctx, `Share: ${installed.reason ?? "collab bridge unavailable"}`);
+		rt.shareStopped = true;
 		return;
 	}
 	if (runtime !== rt || rt.shareStopped) return;
@@ -818,6 +808,7 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 	if (runtime !== rt || rt.shareStopped) return;
 	if (!started || !bridge.webLink) {
 		notifyError(rt.ctx, "Share: failed to start native /collab");
+		rt.shareStopped = true;
 		return;
 	}
 	startPollLoop(rt);
@@ -827,7 +818,6 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 async function stopShare(rt: SessionRuntime | null, ctx: ExtensionContext): Promise<void> {
 	if (rt) {
 		rt.shareStopped = true;
-		rt.inputFallbackArmed = false;
 		stopPoll();
 	}
 
@@ -854,7 +844,7 @@ async function offerFirstRunSetup(ctx: ExtensionContext): Promise<ShareConfig | 
 		return null;
 	}
 	if (!accepted) {
-		notifyInfo(ctx, "Share setup skipped. Restart OMP later to configure sessions share.");
+		notifyInfo(ctx, "Share setup skipped. Run /share later to configure sessions share.");
 		return null;
 	}
 
@@ -864,7 +854,7 @@ async function offerFirstRunSetup(ctx: ExtensionContext): Promise<ShareConfig | 
 		applyConfigToBridge(config);
 		notifyInfo(
 			ctx,
-			"Share setup complete. Restart OMP or open a new shell so the daemon and PATH take effect, then start a new session.",
+			"Share setup complete",
 		);
 		return config;
 	} catch (err) {
@@ -873,52 +863,32 @@ async function offerFirstRunSetup(ctx: ExtensionContext): Promise<ShareConfig | 
 	}
 }
 
-async function onSessionReady(ctx: ExtensionContext, api: ExtensionAPI): Promise<void> {
+async function onSessionReady(ctx: ExtensionContext): Promise<void> {
 	if (!ctx.hasUI) return;
-
-	const rt = ensureRuntime(ctx, api);
-	if (rt.autoStartAttempted) {
-		if (bridge.webLink) startPollLoop(rt);
-		return;
-	}
-	rt.autoStartAttempted = true;
+	const rt = ensureRuntime(ctx);
+	if (rt.collabStartAttempted) return;
+	rt.collabStartAttempted = true;
 
 	const installed = await installCollabBridge();
+	if (runtime !== rt) return;
 	if (!installed.ok) {
-		notifyError(ctx, `Share: ${installed.reason ?? "collab bridge unavailable"}`);
-		rt.inputFallbackArmed = true;
+		notifyError(ctx, `Collab: ${installed.reason ?? "bridge unavailable"}`);
 		return;
 	}
 
-	const config = await getShareConfig();
-	if (!config) {
-		const setupConfig = await offerFirstRunSetup(ctx);
-		// Fresh setup needs restart/new shell before daemon/PATH are guaranteed.
-		if (setupConfig) return;
-		return;
+	// Load configuration only to translate the native link when available.
+	// Dashboard setup and heartbeat polling remain exclusive to `/share`.
+	await getShareConfig();
+	if (runtime !== rt) return;
+
+	await new Promise<void>(resolve => {
+		ctx.setTimeout(() => resolve(), 75);
+	});
+	if (runtime !== rt || bridge.rawWebLink || bridge.webLink) return;
+
+	if (!(await tryTriggerNativeCollab(rt, false)) && runtime === rt) {
+		notifyError(ctx, "Collab: failed to start");
 	}
-
-	rt.shareStopped = !isLocalShareServerRunning();
-
-	const { promise: delayDone, resolve: resolveDelay } = Promise.withResolvers<void>();
-	ctx.setTimeout(() => resolveDelay(), 75);
-	await delayDone;
-
-	const live = ensureRuntime(ctx, api);
-	if (bridge.webLink) {
-		startPollLoop(live);
-		return;
-	}
-
-	const started = await tryTriggerNativeCollab(live);
-	if (!live.shareStopped && started && bridge.webLink) {
-		startPollLoop(live);
-		flushPendingUserText(live);
-		return;
-	}
-	if (live.shareStopped) return;
-
-	live.inputFallbackArmed = true;
 }
 
 export function parseShareCommand(text: string): "start" | "stop" | null {
@@ -960,21 +930,18 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 		return sanitizeOpenRouterResponsesPayload(event.payload);
 	});
 
-	// Install capture early so a manual `/collab` before delayed auto-start is still observed.
-	void installCollabBridge();
-
 	pi.on("session_start", (_event, ctx) => {
-		void onSessionReady(ctx, pi);
+		void onSessionReady(ctx);
 	});
 
 	pi.on("session_switch", (_event, ctx) => {
 		clearWebLink();
 		clearRuntime();
-		void onSessionReady(ctx, pi);
+		void onSessionReady(ctx);
 	});
 
 	pi.on("session_shutdown", () => {
-		runtime = null;
+		clearRuntime();
 		bridge.rawWebLink = null;
 		bridge.webLink = null;
 		settleWaiters(null);
@@ -986,7 +953,7 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 		const shareCommand = parseShareCommand(text);
 
 		if (shareCommand === "start") {
-			const live = rt ?? ensureRuntime(ctx, pi);
+			const live = rt ?? ensureRuntime(ctx);
 			void startShare(live);
 			return { handled: true };
 		}
@@ -999,49 +966,9 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 			return { handled: true };
 		}
 
-		if (isCollabCommand(text)) {
-			if (bridge.webLink) {
-				notifyInfo(ctx, bridge.webLink);
-				return { handled: true };
-			}
-			if (cachedConfig === null) {
-				notifyError(ctx, "Share: not configured");
-				return { handled: true };
-			}
-			void waitForWebLink(15_000, ctx).then(link => {
-				if (!link || !runtime) return;
-				startPollLoop(runtime);
-				flushPendingUserText(runtime);
-			});
-			return { text: NATIVE_COLLAB_COMMAND };
+		if (isCollabCommand(text) && bridge.webLink) {
+			notifyInfo(ctx, bridge.webLink);
+			return { handled: true };
 		}
-
-		if (!rt?.inputFallbackArmed || event.source !== "interactive") return;
-		if (bridge.webLink) {
-			rt.inputFallbackArmed = false;
-			startPollLoop(rt);
-			return;
-		}
-
-		if (cachedConfig === null) {
-			rt.inputFallbackArmed = false;
-			notifyError(ctx, "Share: not configured");
-			return;
-		}
-		rt.inputFallbackArmed = false;
-		rt.pendingUserContent = event.images?.length
-			? [...(text ? [{ type: "text" as const, text }] : []), ...event.images]
-			: text;
-		void waitForWebLink(15_000, ctx).then(link => {
-			if (!runtime) return;
-			if (link) {
-				startPollLoop(runtime);
-				flushPendingUserText(runtime);
-			} else {
-				notifyError(runtime.ctx, "Share: failed to start native /collab");
-				flushPendingUserText(runtime);
-			}
-		});
-		return { text: NATIVE_COLLAB_COMMAND, images: [] };
 	});
 }

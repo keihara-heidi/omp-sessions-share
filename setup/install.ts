@@ -21,7 +21,9 @@ const PACKAGE_ROOT = path.resolve(import.meta.dir, "..");
 const LOCAL_ORIGIN = "http://127.0.0.1:7466";
 const TAILSCALE_HTTPS_PORT = 8443;
 const LAUNCH_LABEL = "sh.omp.sessions-share";
+const LEGACY_LAUNCH_LABEL = "sh.omp.sessions-share-relay";
 const RUNTIME_DIR_NAME = "omp-sessions-share-runtime";
+const LEGACY_RUNTIME_DIR_NAME = "omp-sessions-share-relay";
 const LAUNCHER_MARKER = "omp-sessions-share-owned-launcher";
 const ZSH_BLOCK_BEGIN = "# omp-sessions-share begin";
 const ZSH_BLOCK_END = "# omp-sessions-share end";
@@ -107,6 +109,7 @@ type CommandRunner = (
 export type LocalShareServerControlOptions = {
   home?: string;
   uid?: number;
+  agentDir?: string;
   runCommand?: CommandRunner;
   tailscaleBin?: string;
 };
@@ -166,6 +169,42 @@ async function pathExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Remove the pre-v0.3 relay service before it can reclaim port 7466.
+ *
+ * Merely booting the old job out during setup is insufficient: launchd loads
+ * its retained plist again at the next login, causing the current daemon to
+ * crash-loop on EADDRINUSE.
+ */
+export async function cleanupLegacyLocalShareRelay(
+  options: LocalShareServerControlOptions = {},
+): Promise<boolean> {
+  assertDarwin();
+  const home = options.home ?? requireHome();
+  const uid = options.uid ?? process.getuid!();
+  const legacyPlist = path.join(
+    home,
+    "Library",
+    "LaunchAgents",
+    `${LEGACY_LAUNCH_LABEL}.plist`,
+  );
+  const legacyRuntime = path.join(
+    options.agentDir ?? agentDir(),
+    LEGACY_RUNTIME_DIR_NAME,
+  );
+  if (!(await pathExists(legacyPlist)) && !(await pathExists(legacyRuntime))) {
+    return false;
+  }
+
+  const runCommand = options.runCommand ?? run;
+  runCommand(["launchctl", "bootout", `gui/${uid}/${LEGACY_LAUNCH_LABEL}`], {
+    allowFailure: true,
+  });
+  await rm(legacyPlist, { force: true });
+  await rm(legacyRuntime, { recursive: true, force: true });
+  return true;
 }
 
 async function resolveStaticBundleDir(): Promise<string> {
@@ -259,6 +298,7 @@ async function installLaunchAgent(runtimeRoot: string): Promise<void> {
 
   await mkdir(logsDir, { recursive: true });
   await mkdir(launchAgentsDir, { recursive: true });
+  await cleanupLegacyLocalShareRelay();
 
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -285,8 +325,6 @@ async function installLaunchAgent(runtimeRoot: string): Promise<void> {
 
   const domain = `gui/${uid}`;
   run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
-  // Unload legacy private relay agent if present.
-  run(["launchctl", "bootout", `${domain}/sh.omp.sessions-share-relay`], { allowFailure: true });
   const loaded = run(["launchctl", "bootstrap", domain, plistPath], { allowFailure: true });
   if (!loaded.ok) {
     throw new Error(`launchctl bootstrap failed: ${loaded.stderr.trim() || loaded.stdout.trim()}`);
@@ -339,6 +377,7 @@ export function isLocalShareServerRunning(
 export async function startLocalShareServer(
   options: LocalShareServerControlOptions = {},
 ): Promise<void> {
+  await cleanupLegacyLocalShareRelay(options);
   const control = localServerControl(options);
   if (!(await pathExists(control.plistPath))) {
     throw new Error("Dashboard service is not installed. Run omp-sessions-share setup first.");
@@ -592,7 +631,7 @@ export async function uninstallLocalRuntime(): Promise<void> {
   const home = requireHome();
   const domain = `gui/${process.getuid!()}`;
   run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
-  run(["launchctl", "bootout", `${domain}/sh.omp.sessions-share-relay`], { allowFailure: true });
+  await cleanupLegacyLocalShareRelay();
   try {
     const tailscaleBin = resolveTailscaleBin();
     run([tailscaleBin, "serve", `--https=${TAILSCALE_HTTPS_PORT}`, "off"], {

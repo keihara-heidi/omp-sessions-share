@@ -2,13 +2,80 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import ompSessionsShareExtension, {
   disableBundledCollabQrCode,
   disableCollabQrCode,
   parseShareCommand,
   sanitizeOpenRouterResponsesPayload,
   submitEditorCommandPreservingDraft,
 } from "../extension";
+
+test("OMP startup starts collab without enabling dashboard polling", async () => {
+  const handlers = new Map<
+    string,
+    (event: unknown, ctx: ExtensionContext) => unknown
+  >();
+  const api = {
+    on(
+      event: string,
+      handler: (event: unknown, ctx: ExtensionContext) => unknown,
+    ) {
+      handlers.set(event, handler);
+    },
+  } as unknown as ExtensionAPI;
+  let editorText = "";
+  const editorWrites: string[] = [];
+  let intervalCalls = 0;
+  const ctx = {
+    hasUI: true,
+    cwd: "/tmp/collab-startup",
+    sessionManager: {
+      getSessionId: () => "collab_startup",
+      getSessionName: () => "Collab startup",
+    },
+    setTimeout: (callback: (...args: unknown[]) => void) => {
+      queueMicrotask(callback);
+      return {} as Timer;
+    },
+    setInterval: () => {
+      intervalCalls++;
+      return {} as Timer;
+    },
+    ui: {
+      getEditorText: () => editorText,
+      setEditorText: (text: string) => {
+        editorText = text;
+        editorWrites.push(text);
+      },
+      notify: () => {},
+    },
+  } as unknown as ExtensionContext;
+  const stdin = process.stdin;
+  const originalIsTTY = stdin.isTTY;
+  const stdinEvents: unknown[] = [];
+  const onStdinData = (chunk: unknown) => stdinEvents.push(chunk);
+
+  try {
+    Object.defineProperty(stdin, "isTTY", { configurable: true, value: true });
+    stdin.on("data", onStdinData);
+
+    ompSessionsShareExtension(api);
+    handlers.get("session_start")?.({}, ctx);
+    await Bun.sleep(500);
+
+    expect(editorWrites).toContain("/collab ws://127.0.0.1:7466");
+    expect(stdinEvents).toContain("\r");
+    expect(intervalCalls).toBe(0);
+  } finally {
+    Object.defineProperty(stdin, "isTTY", {
+      configurable: true,
+      value: originalIsTTY,
+    });
+    stdin.off("data", onStdinData);
+    handlers.get("session_shutdown")?.({}, ctx);
+  }
+});
 
 test("share command supports start and stop", () => {
   expect(parseShareCommand("/share")).toBe("start");
