@@ -402,7 +402,7 @@ async function launchOmpInTerminal(
   if (!(await stat(worktreePath)).isDirectory()) {
     throw new Error("worktree is not a directory");
   }
-  const ompPath = join(homedir(), ".local", "bin", "omp");
+  const ompPath = join(homedir(), ".local", "bin", "omp-share");
   // An empty @file selects OMP's immediate initial-message path without
   // changing the prompt text; a bare positional may remain as an editor draft.
   const script =

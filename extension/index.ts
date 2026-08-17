@@ -23,6 +23,7 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { loadShareConfig, type ShareConfig } from "../shared/config";
 import {
 	cleanupLegacyLocalShareRelay,
+	enableCollabGuestTitleGeneration,
 	setupLocalRuntime,
 	startLocalShareServer,
 	stopLocalShareServer,
@@ -445,6 +446,7 @@ async function installCollabBridge(): Promise<{ ok: boolean; reason?: string }> 
 	}
 
 	if (pkgRoot) {
+		await enableCollabGuestTitleGeneration(pkgRoot);
 		disableBundledCollabQrCode(pkgRoot);
 		await disableCollabQrCode(pkgRoot);
 		await tryPatchCollabHostPrototype(pkgRoot);

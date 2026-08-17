@@ -32,6 +32,32 @@ const ALIAS_MARKER = "# omp-sessions-share launcher";
 const SECRET_BYTES = 32;
 const OMP_PKG = "@oh-my-pi/pi-coding-agent";
 
+const COLLAB_TITLE_PATCH_MARKER = "omp-sessions-share:collab-title";
+
+/** Restore OMP auto-titling for prompts received through the collab guest. */
+export async function enableCollabGuestTitleGeneration(pkgRoot: string): Promise<boolean> {
+  const hostPath = path.join(pkgRoot, "src", "collab", "host.ts");
+  try {
+    const source = await readFile(hostPath, "utf8");
+    if (
+      source.includes(COLLAB_TITLE_PATCH_MARKER) ||
+      source.includes("this.#ctx.session.maybeStartTitleGeneration(text);")
+    ) {
+      return true;
+    }
+    const anchor = "\t\tconst details: CollabPromptDetails = { from: name };";
+    if (source.split(anchor).length !== 2) return false;
+    const patched = source.replace(
+      anchor,
+      `${anchor}\n\t\tthis.#ctx.session.maybeStartTitleGeneration(text); // ${COLLAB_TITLE_PATCH_MARKER}`,
+    );
+    await writeFile(hostPath, patched);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function agentDir(): string {
   const fromEnv = process.env.PI_CODING_AGENT_DIR?.trim();
   if (fromEnv) return fromEnv;
@@ -424,7 +450,7 @@ export async function stopLocalShareServer(
 }
 
 /** Resolve pinned OMP source CLI from this package's dependency tree. */
-function resolveBundledOmpCli(): string {
+async function resolveBundledOmpCli(): Promise<string> {
   let pkgJson: string;
   try {
     pkgJson = Bun.resolveSync(`${OMP_PKG}/package.json`, PACKAGE_ROOT);
@@ -438,6 +464,9 @@ function resolveBundledOmpCli(): string {
     }
   }
   const cli = path.join(path.dirname(pkgJson), "src", "cli.ts");
+  if (!(await enableCollabGuestTitleGeneration(path.dirname(path.dirname(cli))))) {
+    throw new Error("Installed OMP does not expose the supported collab prompt path");
+  }
   return cli;
 }
 
@@ -495,7 +524,7 @@ function stripManagedZshBlocks(source: string): string {
 
 async function installLauncherAndAlias(): Promise<void> {
   const home = requireHome();
-  const sourceCli = resolveBundledOmpCli();
+  const sourceCli = await resolveBundledOmpCli();
   if (!(await pathExists(sourceCli))) {
     throw new Error(`OMP source CLI not found at ${sourceCli} (package incomplete)`);
   }
