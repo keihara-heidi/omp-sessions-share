@@ -320,6 +320,7 @@ export function parseDeleteWorktreeInput(v: unknown): DeleteWorktreeInput | null
 
 export type PullRequestReadiness =
   | "ready"
+  | "merged"
   | "draft"
   | "checks_failed"
   | "checks_pending"
@@ -361,6 +362,16 @@ export type WorktreePullRequestStatus = {
     unresolvedThreads: number;
   };
 };
+
+export type MergePullRequestInput = {
+  worktreePath: string;
+};
+
+export function parseMergePullRequestInput(v: unknown): MergePullRequestInput | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const { worktreePath } = v as Record<string, unknown>;
+  return isNonEmptyString(worktreePath, 1024) ? { worktreePath } : null;
+}
 
 /** Browser request to launch an OMP PR repair session in a live worktree. */
 export type LaunchPullRequestTaskInput = {

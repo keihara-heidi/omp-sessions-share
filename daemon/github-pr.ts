@@ -19,6 +19,7 @@ const PR_JSON_FIELDS = [
   "baseRefName",
   "headRefName",
   "isDraft",
+  "state",
   "mergeable",
   "reviewDecision",
   "statusCheckRollup",
@@ -261,6 +262,7 @@ export function mapReviewDecision(
  */
 export function computePullRequestReadiness(input: {
   isDraft: boolean;
+  isMerged: boolean;
   mergeable: "mergeable" | "conflicting" | "unknown";
   reviewDecision:
     | "approved"
@@ -270,6 +272,7 @@ export function computePullRequestReadiness(input: {
   checks: PullRequestChecks;
   unresolvedThreads: number;
 }): PullRequestReadiness {
+  if (input.isMerged) return "merged";
   if (input.isDraft) return "draft";
   if (input.mergeable === "conflicting") return "conflicts";
   if (input.checks.state === "failure") return "checks_failed";
@@ -359,6 +362,7 @@ export function parseGhPrView(
     throw new Error("malformed pull request fields");
   }
 
+  const isMerged = o.state === "MERGED";
   const isDraft = o.isDraft === true;
   const mergeable = mapMergeable(o.mergeable);
   const reviewDecision = mapReviewDecision(o.reviewDecision);
@@ -373,6 +377,7 @@ export function parseGhPrView(
       : 0;
 
   const readiness = computePullRequestReadiness({
+    isMerged,
     isDraft,
     mergeable,
     reviewDecision,
@@ -742,6 +747,35 @@ async function loadStatus(
     fetchedAt,
     pullRequest,
   };
+}
+
+export async function mergePullRequest(
+  status: WorktreePullRequestStatus,
+  options: Pick<
+    GetWorktreePullRequestStatusOptions,
+    "resolveGhBin" | "runGh" | "assertWorktreePath" | "canonicalize"
+  > = {},
+): Promise<void> {
+  const pr = status.pullRequest;
+  if (!pr || pr.readiness !== "ready") {
+    throw new Error("pull request is not ready to merge");
+  }
+  const assertPath = options.assertWorktreePath ?? assertSafeWorktreePath;
+  const canonicalize = options.canonicalize ?? canonicalizePath;
+  const canonicalPath = canonicalize(assertPath(status.worktreePath));
+  const bin = (options.resolveGhBin ?? resolveGhBin)();
+  if (!bin) throw new Error("gh is unavailable");
+
+  const result = await (options.runGh ?? defaultRunGh)(
+    bin,
+    ["pr", "merge", pr.url, "--merge"],
+    canonicalPath,
+  );
+  if (result.code !== 0) throw new Error("gh pr merge failed");
+
+  statusCache.delete(canonicalPath);
+  failedCheckNamesByPath.delete(canonicalPath);
+  failedCheckNamesByPath.delete(status.worktreePath);
 }
 
 /**

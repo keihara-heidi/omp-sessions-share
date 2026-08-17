@@ -38,6 +38,7 @@ const READINESS: Record<
   { label: string; tone: Tone; icon: typeof CircleCheck }
 > = {
   ready: { label: "Ready to merge", tone: "ok", icon: CircleCheck },
+  merged: { label: "Merged", tone: "ok", icon: GitMerge },
   draft: { label: "Draft", tone: "dim", icon: CircleDashed },
   checks_failed: { label: "Checks failed", tone: "destructive", icon: CircleX },
   checks_pending: { label: "Checks running", tone: "warn", icon: Clock },
@@ -143,12 +144,16 @@ export function PrStatusPanel({
   pullRequest,
   launching,
   busyAction,
+  merging,
+  onMerge,
   onAction,
 }: {
   pullRequest: PullRequestInfo;
   launching: boolean;
   busyAction: PullRequestAction | null;
   onAction: (action: PullRequestAction) => void;
+  merging: boolean;
+  onMerge: () => void;
 }) {
   const readiness = READINESS[pullRequest.readiness] ?? READINESS.unknown;
   const ReadinessIcon = readiness.icon;
@@ -189,8 +194,18 @@ export function PrStatusPanel({
           </PrFact>
         ) : null}
       </div>
-      {actions.length > 0 ? (
+      {pullRequest.readiness === "ready" || actions.length > 0 ? (
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap">
+          {pullRequest.readiness === "ready" ? (
+            <TouchButton
+              onClick={onMerge}
+              disabled={launching || merging}
+              aria-label={`Merge pull request #${pullRequest.number}`}
+            >
+              <BusyIcon busy={merging} idle={<GitMerge aria-hidden />} />
+              {merging ? "Merging…" : "Merge"}
+            </TouchButton>
+          ) : null}
           {actions.map((action) => {
             const meta = ACTION_META[action];
             const Icon = meta.icon;
@@ -199,7 +214,7 @@ export function PrStatusPanel({
               <TouchButton
                 key={action}
                 onClick={() => onAction(action)}
-                disabled={launching}
+                disabled={launching || merging}
                 aria-label={`${meta.label} for pull request #${pullRequest.number}`}
               >
                 <BusyIcon busy={busy} idle={<Icon aria-hidden />} />
