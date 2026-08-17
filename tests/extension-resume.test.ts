@@ -50,11 +50,16 @@ test("collab bridge accepts OMP versions without a hard-coded gate", () => {
   expect(versionCompatible(null)).toBe(true);
 });
 
-test("share command supports start and stop", () => {
-  expect(parseShareCommand("/share")).toBe("start");
-  expect(parseShareCommand("  /SHARE  ")).toBe("start");
-  expect(parseShareCommand("/share stop")).toBe("stop");
-  expect(parseShareCommand("/SHARE STOP  ")).toBe("stop");
+test("share command supports start, stop, and registration", () => {
+  expect(parseShareCommand("/share")).toEqual({ action: "start" });
+  expect(parseShareCommand("  /SHARE  ")).toEqual({ action: "start" });
+  expect(parseShareCommand("/share stop")).toEqual({ action: "stop" });
+  expect(parseShareCommand("/SHARE STOP  ")).toEqual({ action: "stop" });
+  expect(parseShareCommand("/share register")).toEqual({ action: "register" });
+  expect(parseShareCommand("/share register ../Project One")).toEqual({
+    action: "register",
+    path: "../Project One",
+  });
 });
 
 test("share command rejects unsupported arguments", () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
@@ -42,8 +42,8 @@ function runGit(cwd: string, args: string[]): void {
   }
 }
 
-function initGitRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "omp-api-wt-"));
+function initGitRepo(dir = mkdtempSync(join(tmpdir(), "omp-api-wt-"))): string {
+  mkdirSync(dir, { recursive: true });
   runGit(dir, ["init"]);
   runGit(dir, ["config", "user.email", "test@example.com"]);
   runGit(dir, ["config", "user.name", "test"]);
@@ -287,6 +287,57 @@ describe("local daemon auth gates", () => {
       expect(unknown?.status).toBe(404);
     } finally {
       rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("registers a repository, a plain directory, and every repository below a project folder", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-api-register-"));
+    const repository = initGitRepo(join(root, "single"));
+    const folder = join(root, "plain-folder");
+    const project = join(root, "project");
+    const projectRepoA = initGitRepo(join(project, "api"));
+    const projectRepoB = initGitRepo(join(project, "packages", "web"));
+    mkdirSync(folder);
+
+    try {
+      for (const path of [repository, folder]) {
+        const response = await api(
+          jsonRequest("http://local/api/host/locations", { path }, hostHeaders),
+        );
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+          data: { locations: Array<{ group: { path: string } }> };
+        };
+        expect(body.data.locations.map((location) => location.group.path)).toEqual([
+          realpathSync(path),
+        ]);
+      }
+
+      const projectResponse = await api(
+        jsonRequest("http://local/api/host/locations", { path: project }, hostHeaders),
+      );
+      expect(projectResponse.status).toBe(200);
+      const projectBody = (await projectResponse.json()) as {
+        data: { locations: Array<{ group: { path: string } }> };
+      };
+      expect(projectBody.data.locations.map((location) => location.group.path).sort()).toEqual(
+        [realpathSync(projectRepoA), realpathSync(projectRepoB)].sort(),
+      );
+
+      const cookie = await loginCookie();
+      const dashboard = await api(
+        new Request("http://local/api/dashboard", { headers: { cookie } }),
+      );
+      const dashboardBody = (await dashboard.json()) as {
+        data: { locations: Array<{ group: { path: string } }> };
+      };
+      expect(dashboardBody.data.locations.map((location) => location.group.path).sort()).toEqual(
+        [repository, folder, projectRepoA, projectRepoB]
+          .map((path) => realpathSync(path))
+          .sort(),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

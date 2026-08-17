@@ -875,10 +875,21 @@ export async function onSessionReady(
 	await startDashboardShare(rt);
 }
 
-export function parseShareCommand(text: string): "start" | "stop" | null {
-	const match = /^\/share(?:\s+(stop))?\s*$/i.exec(text.trim());
-	if (!match) return null;
-	return match[1] ? "stop" : "start";
+export type ShareCommand =
+	| { action: "start" }
+	| { action: "stop" }
+	| { action: "register"; path?: string };
+
+export function parseShareCommand(text: string): ShareCommand | null {
+	const trimmed = text.trim();
+	if (/^\/share\s*$/i.test(trimmed)) return { action: "start" };
+	if (/^\/share\s+stop\s*$/i.test(trimmed)) return { action: "stop" };
+	const register = /^\/share\s+register(?:\s+(.+?))?\s*$/i.exec(trimmed);
+	if (!register) return null;
+	const requestedPath = register[1]?.trim();
+	return requestedPath
+		? { action: "register", path: requestedPath }
+		: { action: "register" };
 }
 
 function isShareCommand(text: string): boolean {
@@ -887,6 +898,34 @@ function isShareCommand(text: string): boolean {
 
 function isCollabCommand(text: string): boolean {
 	return /^\/collab(?:\s+start)?\s*$/i.test(text.trim());
+}
+
+async function registerShareLocation(
+	ctx: ExtensionContext,
+	requestedPath?: string,
+): Promise<void> {
+	const registrationPath = path.resolve(sessionCwdOf(ctx), requestedPath || ".");
+	const result = await hostApi<{
+		locations: Array<{ group: { path: string } }>;
+	}>("/api/host/locations", {
+		method: "POST",
+		body: JSON.stringify({ path: registrationPath }),
+	});
+	if (!result.ok) {
+		notifyError(ctx, `Share register failed: ${result.error}`);
+		return;
+	}
+	if (!Array.isArray(result.data.locations)) {
+		notifyError(ctx, "Share register failed: Invalid response shape");
+		return;
+	}
+	const registeredPaths = [
+		...new Set(result.data.locations.map(location => location.group.path)),
+	];
+	notifyInfo(
+		ctx,
+		`Registered ${registeredPaths.length} ${registeredPaths.length === 1 ? "location" : "locations"}\n${registeredPaths.map(registeredPath => `  ${registeredPath}`).join("\n")}`,
+	);
 }
 
 /** OpenAI rejects replayed reasoning items whose `content` array is non-empty. */
@@ -936,17 +975,21 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 		const rt = runtime && runtime.sessionId === ctx.sessionManager.getSessionId() ? runtime : null;
 		const shareCommand = parseShareCommand(text);
 
-		if (shareCommand === "start") {
+		if (shareCommand?.action === "start") {
 			const live = rt ?? ensureRuntime(ctx);
 			void startShare(live);
 			return { handled: true };
 		}
-		if (shareCommand === "stop") {
+		if (shareCommand?.action === "stop") {
 			void stopShare(rt, ctx);
 			return { handled: true };
 		}
+		if (shareCommand?.action === "register") {
+			void registerShareLocation(ctx, shareCommand.path);
+			return { handled: true };
+		}
 		if (isShareCommand(text)) {
-			notifyError(ctx, "Usage: /share [stop]");
+			notifyError(ctx, "Usage: /share [stop | register [path]]");
 			return { handled: true };
 		}
 

@@ -302,19 +302,37 @@ export function upsertSession(
   return session;
 }
 
-/** Remember a path so it remains actionable before or after any live session. */
+function dashboardLocationForPath(
+  cwd: string,
+  lastSessionStartedAt: string,
+): DashboardLocation {
+  const location = resolveSessionLocation(cwd);
+  const branch = readGitBranch(location.worktree.path, nowMs());
+  return {
+    group: location.group,
+    worktree: branch ? { ...location.worktree, branch } : location.worktree,
+    lastSessionStartedAt,
+  };
+}
+
+/** Remember paths so they remain actionable before or after any live session. */
+export function registerDashboardPaths(
+  cwds: string[],
+  lastSessionStartedAt = new Date(nowMs()).toISOString(),
+): DashboardLocation[] {
+  const locations = cwds.map((cwd) =>
+    dashboardLocationForPath(cwd, lastSessionStartedAt),
+  );
+  registerDashboardLocations(locations);
+  return locations;
+}
+
+/** Remember one path so it remains actionable before or after any live session. */
 export function registerDashboardLocation(
   cwd: string,
   lastSessionStartedAt = new Date(nowMs()).toISOString(),
 ): DashboardLocation {
-  const location = resolveSessionLocation(cwd);
-  const branch = readGitBranch(location.worktree.path, nowMs());
-  const worktree = branch
-    ? { ...location.worktree, branch }
-    : location.worktree;
-  const registered = { group: location.group, worktree, lastSessionStartedAt };
-  registerDashboardLocations([registered]);
-  return registered;
+  return registerDashboardPaths([cwd], lastSessionStartedAt)[0]!;
 }
 
 /** Register a discovery batch with one durable write and one listener update. */

@@ -1,7 +1,7 @@
 /** /api/* handlers for the local single-tenant daemon. */
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 
 
 import type { ShareConfig } from "../shared/config";
@@ -28,6 +28,7 @@ import {
   listSessions,
   registerDashboardLocation,
   registerDashboardLocations,
+  registerDashboardPaths,
   removeDashboardLocation,
   subscribeSessionChanges,
   upsertSession,
@@ -59,6 +60,7 @@ import {
   listGitWorktrees,
   removeGitWorktree,
 } from "./git-worktree";
+import { discoverRegistrationPaths } from "./location";
 import {
   buildPullRequestTask,
   getWorktreePullRequestStatus,
@@ -762,6 +764,42 @@ async function handlePollRequest(
   });
 }
 
+async function handleHostRegisterLocations(
+  req: Request,
+  config: ShareConfig,
+): Promise<Response> {
+  const auth = requireHostAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const body = parsedBody.value;
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return err("Invalid body", 400);
+  }
+  const { path } = body as { path?: unknown };
+  if (!isNonEmptyString(path, 4096) || !isAbsolute(path)) {
+    return err("Path must be an absolute directory", 400);
+  }
+
+  try {
+    const discovered = await discoverRegistrationPaths(path);
+    const locations = registerDashboardPaths(discovered);
+    return jsonOk({ locations }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return err("Directory not found", 404);
+    }
+    if (error instanceof Error && error.message === "Path is not a directory") {
+      return err(error.message, 400);
+    }
+    return err("Could not inspect directory", 500);
+  }
+}
+
 async function handleHostHeartbeat(
   req: Request,
   config: ShareConfig,
@@ -921,6 +959,10 @@ export async function handleApi(
     if (m && method === "GET") {
       return handlePollRequest(req, config, decodeURIComponent(m[1]!));
     }
+  }
+
+  if (pathname === "/api/host/locations" && method === "POST") {
+    return handleHostRegisterLocations(req, config);
   }
 
   if (pathname === "/api/host/sessions" && method === "POST") {
