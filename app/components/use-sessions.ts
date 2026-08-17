@@ -28,19 +28,19 @@ export function useSessionDashboard() {
   const dashboard = useQuery({
     queryKey: SESSIONS_QUERY_KEY,
     queryFn: () => api<SessionDashboard>("/api/dashboard"),
-    refetchInterval: 15_000,
-    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     retry: false,
   });
 
   useEffect(() => {
     const events = new EventSource("/api/events");
-    const refresh = () =>
-      void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
-    events.addEventListener("sessions", refresh);
+    const updateDashboard = (event: MessageEvent<string>) => {
+      const { data } = JSON.parse(event.data) as { data: SessionDashboard };
+      queryClient.setQueryData(SESSIONS_QUERY_KEY, data);
+    };
+    events.addEventListener("dashboard", updateDashboard);
     return () => {
-      events.removeEventListener("sessions", refresh);
+      events.removeEventListener("dashboard", updateDashboard);
       events.close();
     };
   }, [queryClient]);
