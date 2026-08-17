@@ -23,10 +23,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 type PullRequestInfo = NonNullable<WorktreePullRequestStatus["pullRequest"]>;
 
-type Tone = "ok" | "warn" | "destructive" | "dim" | "link";
+type Tone = "merge" | "warn" | "destructive" | "dim" | "link";
 
 const TONE_CLASS: Record<Tone, string> = {
-  ok: "border-ok/40 bg-ok/10 text-ok",
+  merge: "border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300",
   warn: "border-warn/40 bg-warn/10 text-warn",
   destructive: "border-destructive/40 bg-destructive/10 text-destructive",
   dim: "border-border bg-secondary text-muted-foreground",
@@ -37,8 +37,8 @@ const READINESS: Record<
   PullRequestReadiness,
   { label: string; tone: Tone; icon: typeof CircleCheck }
 > = {
-  ready: { label: "Ready to merge", tone: "ok", icon: CircleCheck },
-  merged: { label: "Merged", tone: "ok", icon: GitMerge },
+  ready: { label: "Ready to merge", tone: "merge", icon: CircleCheck },
+  merged: { label: "Merged", tone: "merge", icon: GitMerge },
   draft: { label: "Draft", tone: "dim", icon: CircleDashed },
   checks_failed: { label: "Checks failed", tone: "destructive", icon: CircleX },
   checks_pending: { label: "Checks running", tone: "warn", icon: Clock },
