@@ -46,6 +46,7 @@ import {
   parseCreateJoinRequestInput,
   parseCreateWorktreeInput,
   parseDeleteWorktreeInput,
+  parseMergePullRequestInput,
   parseLaunchPullRequestTaskInput,
   parseLaunchSessionInput,
   parseHostSessionHeartbeat,
@@ -61,6 +62,7 @@ import {
 import {
   buildPullRequestTask,
   getWorktreePullRequestStatus,
+  mergePullRequest,
   isPullRequestActionApplicable,
 } from "./github-pr";
 import { killSessionProcess } from "./session-process";
@@ -393,6 +395,7 @@ type ApiDeps = {
     status: WorktreePullRequestStatus,
     action: PullRequestAction,
   ) => boolean;
+  mergePullRequest?: (status: WorktreePullRequestStatus) => Promise<void>;
 };
 
 export function buildOmpTerminalArgs(
@@ -592,6 +595,44 @@ async function handleWorktreePullRequest(
     return jsonOk(status, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return err("Could not load pull request status", 500);
+  }
+}
+
+async function handleMergePullRequest(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const input = parseMergePullRequestInput(parsedBody.value);
+  if (!input) return err("Invalid body", 400);
+  if (!isAdvertisedWorktreePath(input.worktreePath)) {
+    return err("Worktree not found", 404);
+  }
+
+  const loadStatus = deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
+  let status: WorktreePullRequestStatus;
+  try {
+    status = await loadStatus(input.worktreePath);
+  } catch {
+    return err("Could not load pull request status", 500);
+  }
+  if (!status.pullRequest) return err("No pull request for worktree", 400);
+  if (status.pullRequest.readiness !== "ready") {
+    return err("Pull request is not ready to merge", 409);
+  }
+
+  try {
+    await (deps.mergePullRequest ?? mergePullRequest)(status);
+    return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return err("Could not merge pull request", 500);
   }
 }
 
@@ -855,6 +896,9 @@ export async function handleApi(
   }
   if (pathname === "/api/worktrees/pr-task" && method === "POST") {
     return handleLaunchPullRequestTask(req, config, launchOmp, deps);
+  }
+  if (pathname === "/api/worktrees/pr-merge" && method === "POST") {
+    return handleMergePullRequest(req, config, deps);
   }
   if (pathname === "/api/events" && method === "GET") {
     return handleEvents(req, config);

@@ -8,6 +8,7 @@ import { DeleteWorktreeButton } from "@/app/components/worktree-delete-button";
 import {
   useCreateWorktree,
   useLaunchPullRequestTask,
+  useMergePullRequest,
   useLaunchSession,
   usePullRequestStatus,
 } from "@/app/components/use-sessions";
@@ -41,6 +42,7 @@ function PullRequestSection({
 }) {
   const status = usePullRequestStatus(worktree, enabled);
   const launchTask = useLaunchPullRequestTask(worktree);
+  const merge = useMergePullRequest(worktree);
 
   if (!enabled) return null;
   if (status.isPending) return <PrStatusSkeleton />;
@@ -59,6 +61,8 @@ function PullRequestSection({
       launching={launchTask.isPending}
       busyAction={launchTask.isPending ? (launchTask.variables ?? null) : null}
       onAction={(action) => launchTask.mutate(action)}
+      merging={merge.isPending}
+      onMerge={() => merge.mutate()}
     />
   );
 }

@@ -130,6 +130,23 @@ export function useLaunchPullRequestTask(worktree: WorktreeGroup) {
   });
 }
 
+export function useMergePullRequest(worktree: WorktreeGroup) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<{ ok: true }>(
+        "/api/worktrees/pr-merge",
+        postJson({ worktreePath: worktree.path }),
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["pull-request", worktree.path] });
+      toast.success("Merged pull request");
+    },
+    onError: (error) =>
+      toast.error(errorMessage(error, "Could not merge pull request")),
+  });
+}
+
 export function useCreateWorktree(groupPath: string, groupName: string) {
   const queryClient = useQueryClient();
   return useMutation({

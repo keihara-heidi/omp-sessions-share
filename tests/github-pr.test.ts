@@ -12,6 +12,7 @@ import {
   isPullRequestActionApplicable,
   mapMergeable,
   mapReviewDecision,
+  mergePullRequest,
   parseGhPrView,
   parsePullRequestRepo,
   parseUnresolvedThreadCount,
@@ -31,6 +32,7 @@ function basePrJson(overrides: Record<string, unknown> = {}): string {
     baseRefName: "main",
     headRefName: "feat/dashboards",
     isDraft: false,
+    state: "OPEN",
     mergeable: "MERGEABLE",
     reviewDecision: "",
     statusCheckRollup: [],
@@ -103,6 +105,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: true,
+        isMerged: false,
         mergeable: "conflicting",
         reviewDecision: "changes_requested",
         checks: failedChecks,
@@ -113,6 +116,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: false,
+        isMerged: false,
         mergeable: "conflicting",
         reviewDecision: "changes_requested",
         checks: failedChecks,
@@ -123,6 +127,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: false,
+        isMerged: false,
         mergeable: "mergeable",
         reviewDecision: "changes_requested",
         checks: failedChecks,
@@ -133,6 +138,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: false,
+        isMerged: false,
         mergeable: "mergeable",
         reviewDecision: "changes_requested",
         checks: readyChecks,
@@ -143,6 +149,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: false,
+        isMerged: false,
         mergeable: "mergeable",
         reviewDecision: "none",
         checks: readyChecks,
@@ -153,6 +160,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: false,
+        isMerged: false,
         mergeable: "mergeable",
         reviewDecision: "review_required",
         checks: pendingChecks,
@@ -163,6 +171,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: false,
+        isMerged: false,
         mergeable: "mergeable",
         reviewDecision: "review_required",
         checks: readyChecks,
@@ -173,6 +182,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: false,
+        isMerged: false,
         mergeable: "mergeable",
         reviewDecision: "approved",
         checks: readyChecks,
@@ -183,6 +193,7 @@ describe("computePullRequestReadiness", () => {
     expect(
       computePullRequestReadiness({
         isDraft: false,
+        isMerged: false,
         mergeable: "unknown",
         reviewDecision: "none",
         checks: noneChecks,
@@ -260,6 +271,13 @@ describe("parse helpers", () => {
     expect(pr?.checks.state).toBe("success");
     expect(pr?.failedCheckNames).toEqual([]);
   });
+  test("parseGhPrView identifies merged pull requests", () => {
+    const pr = parseGhPrView(
+      basePrJson({ state: "MERGED", mergeable: "UNKNOWN" }),
+    );
+    expect(pr?.readiness).toBe("merged");
+  });
+
 
   test("parseGhPrView returns null for empty payload", () => {
     expect(parseGhPrView("")).toBeNull();
@@ -333,6 +351,44 @@ describe("isPullRequestActionApplicable", () => {
     }
   });
 });
+
+describe("mergePullRequest", () => {
+  test("runs gh directly for a ready pull request", async () => {
+    const status = statusWith({
+      number: 42,
+      title: "Fix dashboards",
+      url: "https://github.com/acme/app/pull/42",
+      baseBranch: "main",
+      headBranch: "feat/dashboards",
+      isDraft: false,
+      readiness: "ready",
+      mergeable: "mergeable",
+      reviewDecision: "approved",
+      checks: { state: "success", total: 1, failed: 0, pending: 0 },
+      unresolvedThreads: 0,
+    });
+    const calls: Array<{ bin: string; args: string[]; cwd: string }> = [];
+
+    await mergePullRequest(status, {
+      resolveGhBin: () => "/opt/homebrew/bin/gh",
+      runGh: async (bin, args, cwd) => {
+        calls.push({ bin, args, cwd });
+        return { code: 0, stdout: "", stderr: "" };
+      },
+      assertWorktreePath: (path) => path,
+      canonicalize: (path) => path,
+    });
+
+    expect(calls).toEqual([
+      {
+        bin: "/opt/homebrew/bin/gh",
+        args: ["pr", "merge", "https://github.com/acme/app/pull/42", "--merge"],
+        cwd: "/tmp/worktree",
+      },
+    ]);
+  });
+});
+
 
 describe("buildPullRequestTask", () => {
   test("includes PR identity and action-specific evidence", () => {

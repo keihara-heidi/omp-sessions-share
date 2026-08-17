@@ -896,6 +896,54 @@ describe("pull request readiness and repair launch", () => {
     });
   });
 
+  test("POST /api/worktrees/pr-merge runs the direct merge action without OMP", async () => {
+    const session = upsertSession({
+      id: "pr_merge_source",
+      title: "PR merge session",
+      cwd: "/tmp/phone-pr-merge",
+      startedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const worktreePath = session.worktree.path;
+    const body = { worktreePath };
+    const unauthorized = await api(
+      jsonRequest("http://local/api/worktrees/pr-merge", body),
+    );
+    expect(unauthorized.status).toBe(401);
+
+    const cookie = await loginCookie();
+    const merged: number[] = [];
+    const response = await handleApi(
+      jsonRequest("http://local/api/worktrees/pr-merge", body, { cookie }),
+      config,
+      "/api/worktrees/pr-merge",
+      async () => {
+        throw new Error("must not launch OMP");
+      },
+      async () => {
+        throw new Error("must not create");
+      },
+      {
+        getWorktreePullRequestStatus: async (path) => ({
+          ...prStatus,
+          worktreePath: path,
+          pullRequest: {
+            ...prStatus.pullRequest,
+            readiness: "ready",
+            checks: { state: "success", total: 3, failed: 0, pending: 0 },
+          },
+        }),
+        mergePullRequest: async (status) => {
+          merged.push(status.pullRequest!.number);
+        },
+      },
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ data: { ok: true } });
+    expect(merged).toEqual([42]);
+  });
+
+
   test("POST /api/worktrees/pr-task validates body, auth, path, and action", async () => {
     const session = upsertSession({
       id: "pr_task_source",
