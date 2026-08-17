@@ -1,6 +1,7 @@
 /** Derive session group/worktree metadata from cwd (Git or folder). */
 
 import { realpathSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import {
   basename,
@@ -220,6 +221,36 @@ export function resolveSessionLocation(cwd: string): SessionLocation {
   cache.set(cwd, location);
   cache.set(canonicalCwd, location);
   return location;
+}
+
+/**
+ * Resolve one repository directly, or recursively find repositories below a
+ * plain project folder. A folder with no repositories remains registerable.
+ */
+export async function discoverRegistrationPaths(input: string): Promise<string[]> {
+  const root = canonicalizePath(input);
+  if (!(await stat(root)).isDirectory()) throw new Error("Path is not a directory");
+  if (resolveSessionLocation(root).group.kind === "repository") return [root];
+
+  const repositories: string[] = [];
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name === ".git" || entry.name === "node_modules") {
+        continue;
+      }
+      const child = join(directory, entry.name);
+      try {
+        await stat(join(child, ".git"));
+        repositories.push(child);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        pending.push(child);
+      }
+    }
+  }
+  return repositories.length > 0 ? repositories.sort() : [root];
 }
 
 export function clearLocationCache(): void {

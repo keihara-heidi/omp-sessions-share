@@ -38,6 +38,14 @@ No Vercel, Redis, cloud database, or central service.
 5. To start another session, expand a folder or repository and tap **Start** beside a worktree. The Mac opens a Terminal running OMP in that worktree. On a repository group, tap **New worktree** to create a sibling linked worktree with `git worktree` and start OMP there.
 6. Tap the remove button on a session to hide it and SIGTERM that session's OMP process. The IDE or terminal app is not closed. If another live dashboard session shares the same process, only the dashboard row is removed.
 
+Register a repository or directory before it has a live session:
+
+```text
+/share register [path]
+```
+
+The path defaults to the current session directory. A project folder containing multiple Git repositories registers each repository; a plain folder with no repositories registers as one folder.
+
 Dashboard hierarchy:
 
 ```text
@@ -53,6 +61,10 @@ Dashboard session changes arrive through an authenticated live event stream; no 
 Groups start collapsed. Launching is limited to worktrees advertised by a current live session.
 
 The browser receives the collab link encrypted to a non-extractable RSA key generated on that device. The relay sees only OMP's existing end-to-end encrypted collab frames.
+
+## Release policy
+
+Every commit to `main` must bump the `package.json` version using semantic versioning.
 
 ## Repair setup
 
