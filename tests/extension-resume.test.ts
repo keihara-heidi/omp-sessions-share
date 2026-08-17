@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { enableCollabGuestTitleGeneration } from "../setup/install";
 import {
   disableBundledCollabQrCode,
   disableCollabQrCode,
@@ -121,6 +122,30 @@ test("bundled OMP collab QR component is suppressed", async () => {
     expect(patched).toContain("omp-sessions-share:no-collab-qr");
     expect(patched).not.toContain(".present([new g0(1),new C9i(n)])");
     expect(disableBundledCollabQrCode(packageRoot)).toBe(true);
+  } finally {
+    await rm(packageRoot, { recursive: true, force: true });
+  }
+});
+
+test("collab guest prompts start OMP title generation", async () => {
+  const packageRoot = await mkdtemp(path.join(tmpdir(), "omp-collab-title-"));
+  const hostPath = path.join(packageRoot, "src", "collab", "host.ts");
+  const source = [
+    "class CollabHost {",
+    "\t#handlePrompt(text: string, name: string): void {",
+    "\t\tconst details: CollabPromptDetails = { from: name };",
+    "\t\tthis.#ctx.session.promptCustomMessage({ details });",
+    "\t}",
+    "}",
+  ].join("\n");
+  await mkdir(path.dirname(hostPath), { recursive: true });
+  await writeFile(hostPath, source);
+  try {
+    expect(await enableCollabGuestTitleGeneration(packageRoot)).toBe(true);
+    const patched = await readFile(hostPath, "utf8");
+    expect(patched).toContain("this.#ctx.session.maybeStartTitleGeneration(text);");
+    expect(await enableCollabGuestTitleGeneration(packageRoot)).toBe(true);
+    expect((await readFile(hostPath, "utf8")).match(/maybeStartTitleGeneration/g)).toHaveLength(1);
   } finally {
     await rm(packageRoot, { recursive: true, force: true });
   }
