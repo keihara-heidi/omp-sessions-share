@@ -792,7 +792,7 @@ describe("GET /api/events SSE", () => {
     expect(res.status).toBe(401);
   });
 
-  test("streams event: sessions frames; upsert notifies; abort unsubscribes", async () => {
+  test("streams dashboard snapshots; upsert notifies; abort unsubscribes", async () => {
     const cookie = await loginCookie();
     const ac = new AbortController();
     const res = await api(
@@ -807,24 +807,17 @@ describe("GET /api/events SSE", () => {
 
     const reader = res.body!.getReader();
     const initial = await readChunk(reader);
-    // Contract: named sessions event. Payload is JSON (snapshot or invalidation).
-    expect(initial).toContain("event: sessions\n");
-    expect(initial).toMatch(/data: \{.*\}\n\n/);
+    expect(initial).toContain("event: dashboard\n");
     const initialDataLine = initial
       .split("\n")
-      .find((l) => l.startsWith("data: "));
+      .find((line) => line.startsWith("data: "));
     expect(initialDataLine).toBeTruthy();
     const initialPayload = JSON.parse(initialDataLine!.slice("data: ".length)) as {
-      data?: unknown;
+      data: { sessions: unknown[]; locations: unknown[] };
     };
-    // Initial empty list (or empty invalidation object).
-    if ("data" in initialPayload) {
-      expect(initialPayload.data).toEqual([]);
-    } else {
-      expect(initialPayload).toEqual({});
-    }
+    expect(initialPayload.data).toEqual({ sessions: [], locations: [] });
 
-    // Meaningful upsert should push another sessions frame (no real timers).
+    // Meaningful host changes push the complete dashboard without a follow-up fetch.
     upsertSession({
       id: "sse-session-1",
       title: "live",
@@ -833,18 +826,19 @@ describe("GET /api/events SSE", () => {
     });
 
     const next = await readChunk(reader);
-    expect(next).toContain("event: sessions\n");
-    const nextDataLine = next.split("\n").find((l) => l.startsWith("data: "));
+    expect(next).toContain("event: dashboard\n");
+    const nextDataLine = next.split("\n").find((line) => line.startsWith("data: "));
     expect(nextDataLine).toBeTruthy();
     const nextPayload = JSON.parse(nextDataLine!.slice("data: ".length)) as {
-      data?: Array<{ id: string }>;
+      data: {
+        sessions: Array<{ id: string }>;
+        locations: Array<{ worktree: { path: string } }>;
+      };
     };
-    if (Array.isArray(nextPayload.data)) {
-      expect(nextPayload.data.some((s) => s.id === "sse-session-1")).toBe(true);
-    } else {
-      // Invalidation-only contract: empty object still names the sessions event.
-      expect(nextPayload).toEqual({});
-    }
+    expect(nextPayload.data.sessions.some((session) => session.id === "sse-session-1"))
+      .toBe(true);
+    expect(nextPayload.data.locations.some((location) => location.worktree.path === "/tmp/sse"))
+      .toBe(true);
 
     ac.abort();
     // After abort, further upserts must not throw; stream is closed.

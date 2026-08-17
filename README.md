@@ -56,7 +56,7 @@ Folder / Repository
 
 Search is typo-tolerant and lets separate query terms match across repository names and paths, worktree or branch-like names, session titles, and session directories. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
 
-Dashboard session changes arrive through an authenticated live event stream; no phone reload needed. A 15-second poll remains as a disconnect fallback.
+Dashboard session and location changes arrive as complete snapshots through an authenticated live event stream; no polling or phone reload needed. EventSource reconnects automatically and receives a fresh snapshot.
 
 Groups start collapsed. Launching is limited to worktrees advertised by a current live session.
 

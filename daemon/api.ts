@@ -36,7 +36,6 @@ import {
 
 import {
   type DashboardLocation,
-  type SessionSummary,
   type PullRequestAction,
   type WorktreePullRequestStatus,
   isJsonContentType,
@@ -308,19 +307,17 @@ async function handleEvents(
           closed = true;
         }
       };
-      const sendSessions = (sessions: SessionSummary[]) => {
+      const sendDashboard = () => {
         enqueue(
-          `event: sessions\ndata: ${JSON.stringify({ data: sessions })}\n\n`,
+          `event: dashboard\ndata: ${JSON.stringify({ data: getSessionDashboard() })}\n\n`,
         );
       };
 
+      // Initial snapshot also restores current state after EventSource reconnects.
+      sendDashboard();
 
-
-      // Initial snapshot so clients need no separate bootstrap fetch.
-      sendSessions(listSessions());
-
-      unsub = subscribeSessionChanges((sessions) => {
-        sendSessions(sessions);
+      unsub = subscribeSessionChanges(() => {
+        sendDashboard();
       });
 
       keepalive = setInterval(() => {
