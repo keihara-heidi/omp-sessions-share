@@ -953,14 +953,12 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 		return sanitizeOpenRouterResponsesPayload(event.payload);
 	});
 
-	pi.on("session_start", (_event, ctx) => {
-		void onSessionReady(ctx);
-	});
+	pi.on("session_start", (_event, ctx) => onSessionReady(ctx));
 
 	pi.on("session_switch", (_event, ctx) => {
 		clearWebLink();
 		clearRuntime();
-		void onSessionReady(ctx);
+		return onSessionReady(ctx);
 	});
 
 	pi.on("session_shutdown", () => {

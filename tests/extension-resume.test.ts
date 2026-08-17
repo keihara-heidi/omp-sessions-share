@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { enableCollabGuestTitleGeneration } from "../setup/install";
-import {
+import ompSessionsShareExtension, {
   disableBundledCollabQrCode,
   disableCollabQrCode,
   extractOsc8Urls,
@@ -40,6 +40,24 @@ test("OMP startup and resume automatically enable dashboard sharing", async () =
     shareStarts++;
   });
   expect(shareStarts).toBe(2);
+});
+
+test("session lifecycle waits for automatic sharing startup", async () => {
+  const handlers = new Map<string, (...args: unknown[]) => unknown>();
+  const pi = {
+    on: (event: string, handler: (...args: unknown[]) => unknown) => {
+      handlers.set(event, handler);
+    },
+  } as unknown as ExtensionAPI;
+  const ctx = { hasUI: false } as ExtensionContext;
+
+  ompSessionsShareExtension(pi);
+
+  const started = handlers.get("session_start")?.({}, ctx);
+  const switched = handlers.get("session_switch")?.({}, ctx);
+  expect(started).toBeInstanceOf(Promise);
+  expect(switched).toBeInstanceOf(Promise);
+  await Promise.all([started, switched]);
 });
 
 test("collab bridge accepts OMP versions without a hard-coded gate", () => {
