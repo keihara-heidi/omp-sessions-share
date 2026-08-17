@@ -2,81 +2,52 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { enableCollabGuestTitleGeneration } from "../setup/install";
-import ompSessionsShareExtension, {
+import {
   disableBundledCollabQrCode,
   disableCollabQrCode,
   extractOsc8Urls,
+  onSessionReady,
   parseShareCommand,
   sanitizeOpenRouterResponsesPayload,
   submitEditorCommandPreservingDraft,
+  versionCompatible,
 } from "../extension";
 
-test("OMP startup starts collab without enabling dashboard polling", async () => {
-  const handlers = new Map<
-    string,
-    (event: unknown, ctx: ExtensionContext) => unknown
-  >();
-  const api = {
-    on(
-      event: string,
-      handler: (event: unknown, ctx: ExtensionContext) => unknown,
-    ) {
-      handlers.set(event, handler);
-    },
-  } as unknown as ExtensionAPI;
-  let editorText = "";
-  const editorWrites: string[] = [];
-  let intervalCalls = 0;
+test("OMP startup and resume automatically enable dashboard sharing", async () => {
+  let shareStarts = 0;
+  let sessionId = "started_session";
   const ctx = {
     hasUI: true,
     cwd: "/tmp/collab-startup",
     sessionManager: {
-      getSessionId: () => "collab_startup",
+      getSessionId: () => sessionId,
       getSessionName: () => "Collab startup",
     },
-    setTimeout: (callback: (...args: unknown[]) => void) => {
-      queueMicrotask(callback);
-      return {} as Timer;
-    },
-    setInterval: () => {
-      intervalCalls++;
-      return {} as Timer;
-    },
-    ui: {
-      getEditorText: () => editorText,
-      setEditorText: (text: string) => {
-        editorText = text;
-        editorWrites.push(text);
-      },
-      notify: () => {},
-    },
   } as unknown as ExtensionContext;
-  const stdin = process.stdin;
-  const originalIsTTY = stdin.isTTY;
-  const stdinEvents: unknown[] = [];
-  const onStdinData = (chunk: unknown) => stdinEvents.push(chunk);
 
-  try {
-    Object.defineProperty(stdin, "isTTY", { configurable: true, value: true });
-    stdin.on("data", onStdinData);
+  await onSessionReady(ctx, async () => {
+    shareStarts++;
+  });
+  await onSessionReady(ctx, async () => {
+    shareStarts++;
+  });
+  expect(shareStarts).toBe(1);
 
-    ompSessionsShareExtension(api);
-    handlers.get("session_start")?.({}, ctx);
-    await Bun.sleep(500);
+  sessionId = "resumed_session";
+  await onSessionReady(ctx, async () => {
+    shareStarts++;
+  });
+  expect(shareStarts).toBe(2);
+});
 
-    expect(editorWrites).toContain("/collab ws://127.0.0.1:7466");
-    expect(stdinEvents).toContain("\r");
-    expect(intervalCalls).toBe(0);
-  } finally {
-    Object.defineProperty(stdin, "isTTY", {
-      configurable: true,
-      value: originalIsTTY,
-    });
-    stdin.off("data", onStdinData);
-    handlers.get("session_shutdown")?.({}, ctx);
-  }
+test("collab bridge accepts OMP versions without a hard-coded gate", () => {
+  expect(versionCompatible("16.0.0")).toBe(true);
+  expect(versionCompatible("17.2.15")).toBe(true);
+  expect(versionCompatible("17.3.5")).toBe(true);
+  expect(versionCompatible("18.0.0")).toBe(true);
+  expect(versionCompatible(null)).toBe(true);
 });
 
 test("share command supports start and stop", () => {
