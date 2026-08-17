@@ -1,7 +1,7 @@
 /**
  * OMP sessions-share host extension.
  *
- * Docs (omp 17.2.x):
+ * Docs (native `/collab`):
  * - docs/collab.md: native `/collab` owns AES-GCM room + browser deep link; link possession is trust boundary.
  * - ExtensionContext has no collab/start-builtin API; no documented builtin execution API.
  * - TUI emits `input` before builtin slash dispatch → `/share` can be owned here (core reserves the name).
@@ -105,8 +105,6 @@ type SessionRuntime = {
 	lastErrorAt: number;
 };
 
-const BRIDGE_MAJOR = 17;
-const BRIDGE_MINOR = 2;
 const OSC8_RE = /\x1b\]8;[^;]*;(https?:\/\/[^\x07\x1b]+)(?:\x07|\x1b\\)/g;
 const COLLAB_FRAGMENT_RE = /^[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{64}$/;
 const PUBLIC_COLLAB_WEB_ORIGIN = "https://my.omp.sh";
@@ -181,11 +179,9 @@ function readPackageVersion(pkgRoot: string | null): string | null {
 	}
 }
 
-function versionCompatible(version: string | null): boolean {
-	if (!version) return false;
-	const m = /^(\d+)\.(\d+)\./.exec(version);
-	if (!m) return false;
-	return Number(m[1]) === BRIDGE_MAJOR && Number(m[2]) === BRIDGE_MINOR;
+export function versionCompatible(version: string | null): boolean {
+	void version;
+	return true;
 }
 
 /** Locate installed @oh-my-pi/pi-coding-agent root (source tree next to bundled cli). */
@@ -436,13 +432,10 @@ async function installCollabBridge(): Promise<{ ok: boolean; reason?: string }> 
 	const pkgRoot = findCodingAgentRoot();
 	const version = readPackageVersion(pkgRoot);
 	bridge.version = version;
+	// Native /collab output capture is version-agnostic. Prototype and QR
+	// patches validate their target shapes and safely fall back when they differ.
 	bridge.versionOk = versionCompatible(version);
 	installStdoutCapture();
-
-	if (!bridge.versionOk) {
-		bridge.reason = `Share bridge requires @oh-my-pi/pi-coding-agent ${BRIDGE_MAJOR}.${BRIDGE_MINOR}.x (found ${version ?? "unknown"})`;
-		return { ok: false, reason: bridge.reason };
-	}
 
 	if (pkgRoot) {
 		disableBundledCollabQrCode(pkgRoot);
@@ -801,7 +794,7 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 	if (runtime !== rt || rt.shareStopped) return;
 	if (bridge.webLink) {
 		startPollLoop(rt);
-		notifyInfo(rt.ctx, "Share dashboard started");
+		notifyInfo(rt.ctx, `Share dashboard started (tailnet)\n  URL: ${config.publicOrigin}\n  Password: ${config.dashboardPassword}`);
 		return;
 	}
 
@@ -813,7 +806,7 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 		return;
 	}
 	startPollLoop(rt);
-	notifyInfo(rt.ctx, "Share dashboard started");
+	notifyInfo(rt.ctx, `Share dashboard started (tailnet)\n  URL: ${config.publicOrigin}\n  Password: ${config.dashboardPassword}`);
 }
 
 async function stopShare(rt: SessionRuntime | null, ctx: ExtensionContext): Promise<void> {
@@ -864,32 +857,20 @@ async function offerFirstRunSetup(ctx: ExtensionContext): Promise<ShareConfig | 
 	}
 }
 
-async function onSessionReady(ctx: ExtensionContext): Promise<void> {
+type StartDashboardShare = (rt: SessionRuntime) => Promise<void>;
+
+export async function onSessionReady(
+	ctx: ExtensionContext,
+	startDashboardShare: StartDashboardShare = startShare,
+): Promise<void> {
 	if (!ctx.hasUI) return;
 	const rt = ensureRuntime(ctx);
 	if (rt.collabStartAttempted) return;
 	rt.collabStartAttempted = true;
 
-	const installed = await installCollabBridge();
-	if (runtime !== rt) return;
-	if (!installed.ok) {
-		notifyError(ctx, `Collab: ${installed.reason ?? "bridge unavailable"}`);
-		return;
-	}
-
-	// Load configuration only to translate the native link when available.
-	// Dashboard setup and heartbeat polling remain exclusive to `/share`.
-	await getShareConfig();
-	if (runtime !== rt) return;
-
-	await new Promise<void>(resolve => {
-		ctx.setTimeout(() => resolve(), 75);
-	});
-	if (runtime !== rt || bridge.rawWebLink || bridge.webLink) return;
-
-	if (!(await tryTriggerNativeCollab(rt, false)) && runtime === rt) {
-		notifyError(ctx, "Collab: failed to start");
-	}
+	// Every interactive host session is dashboard-visible by default. startShare
+	// also starts native /collab and begins authenticated dashboard heartbeats.
+	await startDashboardShare(rt);
 }
 
 export function parseShareCommand(text: string): "start" | "stop" | null {
