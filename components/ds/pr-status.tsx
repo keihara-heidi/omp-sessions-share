@@ -70,10 +70,8 @@ export function applicableActions(pr: PullRequestInfo): PullRequestAction[] {
 
 function checksSummary(checks: PullRequestInfo["checks"]): string | null {
   if (checks.state === "none") return null;
-  if (checks.state === "failure")
-    return `${checks.failed} of ${checks.total} check${checks.total === 1 ? "" : "s"} failed`;
-  if (checks.state === "pending")
-    return `${checks.pending} check${checks.pending === 1 ? "" : "s"} running`;
+  if (checks.state === "failure") return `${checks.failed} of ${checks.total} check${checks.total === 1 ? "" : "s"} failed`;
+  if (checks.state === "pending") return `${checks.pending} check${checks.pending === 1 ? "" : "s"} running`;
   return "Checks passed";
 }
 
@@ -84,34 +82,18 @@ function reviewSummary(decision: PullRequestInfo["reviewDecision"]): string | nu
   return null;
 }
 
-function PrShell({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <section
-      aria-label={label}
-      className="flex min-w-0 flex-col gap-2 border-b border-border px-3 py-2.5"
-    >
-      {children}
-    </section>
-  );
-}
 
 function PrFact({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
     <span className="flex min-w-0 items-center gap-1">
-      <span aria-hidden className="shrink-0 text-dim [&_svg]:size-3">
-        {icon}
-      </span>
+      <span aria-hidden className="shrink-0 text-dim [&_svg]:size-3">{icon}</span>
       <span className="min-w-0 truncate">{children}</span>
     </span>
   );
 }
 
 export function PrStatusSkeleton() {
-  return (
-    <div aria-hidden className="border-b border-border px-3 py-2.5">
-      <Skeleton className="h-4 w-44 max-w-full" />
-    </div>
-  );
+  return <div aria-hidden className="border-b border-border px-3 py-2.5"><Skeleton className="h-4 w-44 max-w-full" /></div>;
 }
 
 export function PrStatusError({
@@ -122,7 +104,7 @@ export function PrStatusError({
   retrying: boolean;
 }) {
   return (
-    <PrShell label="Pull request status unavailable">
+    <section aria-label="Pull request status unavailable" className="flex min-w-0 flex-col gap-2 border-b border-border px-3 py-2.5">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
         <span className="min-w-0 flex-1 truncate text-xs text-destructive">
           Couldn’t load pull request status
@@ -136,7 +118,7 @@ export function PrStatusError({
           {retrying ? "Retrying…" : "Retry"}
         </TouchButton>
       </div>
-    </PrShell>
+    </section>
   );
 }
 
@@ -162,7 +144,7 @@ export function PrStatusPanel({
   const actions = applicableActions(pullRequest);
 
   return (
-    <PrShell label={`Pull request #${pullRequest.number}`}>
+    <section aria-label={`Pull request #${pullRequest.number}`} className="flex min-w-0 flex-col gap-2 border-b border-border px-3 py-2.5">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <a
           href={pullRequest.url}
@@ -224,6 +206,6 @@ export function PrStatusPanel({
           })}
         </div>
       ) : null}
-    </PrShell>
+    </section>
   );
 }
