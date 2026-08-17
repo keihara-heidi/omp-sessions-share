@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import {
   type ShareConfig,
+  getDashboardDbPath,
   getDashboardLocationsPath,
   getShareConfigPath,
   loadShareConfig,
@@ -672,6 +673,10 @@ export async function uninstallLocalRuntime(): Promise<void> {
   await rm(runtimeDir(), { recursive: true, force: true });
   await rm(getShareConfigPath(), { force: true });
   await rm(getDashboardLocationsPath(), { force: true });
+  const dbPath = getDashboardDbPath();
+  await rm(dbPath, { force: true });
+  await rm(`${dbPath}-wal`, { force: true });
+  await rm(`${dbPath}-shm`, { force: true });
   await rm(path.join(home, "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`), {
     force: true,
   });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,20 +8,29 @@ import {
 } from "../lib/contracts";
 import {
   LOGIN_ATTEMPT_MAX,
+  RECENT_SESSIONS_DISPLAY_LIMIT,
+  closeDashboardPersistence,
+  configureDashboardDb,
   configureDashboardLocationPersistence,
   consumeLoginAttempt,
   createRequest,
   deactivateSession,
+  deleteResumeSession,
   exclusiveSessionPid,
+  flushDashboardDb,
+  flushDirtyLastSeen,
   getRequest,
+  getResumeSession,
   getSession,
   getSessionDashboard,
+  listRecentSessions,
   listRequestsBySession,
   listSessions,
   registerDashboardLocations,
   removeDashboardLocation,
   resetStoreForTests,
   setNowForTests,
+  setResumeLastSeenFlushMsForTests,
   subscribeSessionChanges,
   upsertSession,
 } from "../daemon/store";
@@ -80,16 +89,17 @@ describe("daemon store TTL pruning", () => {
           lastSessionStartedAt: created.startedAt,
         },
       ],
+      recentSessions: [],
     });
   });
 
   test("dashboard locations survive daemon store reloads until explicitly removed", () => {
     const root = mkdtempSync(join(tmpdir(), "omp-location-history-"));
     const cwd = join(root, "project");
-    const historyPath = join(root, "locations.json");
+    const dbPath = join(root, "omp-sessions-share.sqlite");
     mkdirSync(cwd);
     try {
-      configureDashboardLocationPersistence(historyPath);
+      configureDashboardDb(dbPath);
       const session = upsertSession({
         id: "persisted-session",
         title: "Persistent",
@@ -98,7 +108,7 @@ describe("daemon store TTL pruning", () => {
       });
 
       resetStoreForTests();
-      configureDashboardLocationPersistence(historyPath);
+      configureDashboardDb(dbPath);
       expect(getSessionDashboard()).toMatchObject({
         sessions: [],
         locations: [
@@ -108,14 +118,80 @@ describe("daemon store TTL pruning", () => {
             lastSessionStartedAt: session.startedAt,
           },
         ],
+        recentSessions: [],
       });
 
       expect(
         removeDashboardLocation(session.group.path, session.worktree.path),
       ).toBe(true);
       resetStoreForTests();
-      configureDashboardLocationPersistence(historyPath);
+      configureDashboardDb(dbPath);
       expect(getSessionDashboard().locations).toEqual([]);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("legacy locations JSON imports once via DB bootstrap", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-legacy-loc-"));
+    const dbPath = join(root, "dash.sqlite");
+    const locationsPath = join(root, "omp-sessions-share-locations.json");
+    const group = {
+      kind: "folder" as const,
+      name: "project",
+      path: join(root, "project"),
+    };
+    const worktree = { name: "project", path: group.path };
+    writeFileSync(
+      locationsPath,
+      `${JSON.stringify({
+        version: 1,
+        locations: [
+          {
+            group,
+            worktree,
+            lastSessionStartedAt: "2026-08-12T00:00:00.000Z",
+          },
+        ],
+      })}\n`,
+      { mode: 0o600 },
+    );
+    try {
+      configureDashboardDb(dbPath, locationsPath);
+      expect(getSessionDashboard().locations).toEqual([
+        {
+          group,
+          worktree,
+          lastSessionStartedAt: "2026-08-12T00:00:00.000Z",
+        },
+      ]);
+
+      writeFileSync(locationsPath, "corrupt", { mode: 0o600 });
+      resetStoreForTests();
+      configureDashboardDb(dbPath, locationsPath);
+      expect(getSessionDashboard().locations).toHaveLength(1);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("configureDashboardLocationPersistence opens sqlite beside legacy json", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-loc-alias-"));
+    const locationsPath = join(root, "locations.json");
+    try {
+      configureDashboardLocationPersistence(locationsPath);
+      registerDashboardLocations([
+        {
+          group: { kind: "folder", name: "x", path: "/tmp/x" },
+          worktree: { name: "x", path: "/tmp/x" },
+          lastSessionStartedAt: "2026-08-12T00:00:00.000Z",
+        },
+      ]);
+      closeDashboardPersistence();
+      configureDashboardDb(`${locationsPath}.sqlite`);
+      expect(getSessionDashboard().locations).toHaveLength(1);
     } finally {
       resetStoreForTests();
       rmSync(root, { recursive: true, force: true });
@@ -165,7 +241,6 @@ describe("daemon store TTL pruning", () => {
     expect(getRequest(req.id)?.status).toBe("pending");
     expect(listRequestsBySession("s1")).toHaveLength(1);
 
-    // Keep session alive past request TTL.
     setNowForTests(() => t0 + (REQUEST_TTL_SECONDS - 1) * 1000);
     upsertSession({
       id: "s1",
@@ -209,6 +284,311 @@ describe("daemon store TTL pruning", () => {
   });
 });
 
+describe("resume session durability", () => {
+  test("sessionFile heartbeats persist private resume identity across restarts", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-resume-dur-"));
+    const dbPath = join(root, "dash.sqlite");
+    const cwd = join(root, "proj");
+    mkdirSync(cwd);
+    const sessionFile = join(root, "sess-1.jsonl");
+    try {
+      configureDashboardDb(dbPath);
+      const live = upsertSession({
+        id: "sess-1",
+        title: "First title",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      expect(live).not.toHaveProperty("sessionFile");
+      expect(getSessionDashboard().recentSessions).toEqual([]);
+      expect(getSessionDashboard().sessions).toHaveLength(1);
+      expect(listRecentSessions()).toEqual([]);
+
+      setNowForTests(() => t0 + SESSION_TTL_SECONDS * 1000);
+      expect(getSession("sess-1")).toBeNull();
+      const afterExpiry = getSessionDashboard();
+      expect(afterExpiry.sessions).toEqual([]);
+      expect(afterExpiry.recentSessions).toHaveLength(1);
+      const recent = afterExpiry.recentSessions[0]!;
+      expect(recent.id).not.toBe("sess-1");
+      expect(recent.title).toBe("First title");
+      expect(recent).not.toHaveProperty("sessionFile");
+      expect(JSON.stringify(afterExpiry)).not.toContain(sessionFile);
+
+      const privateRow = getResumeSession(recent.id);
+      expect(privateRow?.sessionId).toBe("sess-1");
+      expect(privateRow?.sessionFile).toBe(sessionFile);
+      expect(privateRow?.group).toEqual(live.group);
+      expect(privateRow?.worktree).toEqual(live.worktree);
+
+      resetStoreForTests();
+      configureDashboardDb(dbPath);
+      const reloaded = getSessionDashboard();
+      expect(reloaded.sessions).toEqual([]);
+      expect(reloaded.recentSessions).toEqual([
+        {
+          id: recent.id,
+          title: "First title",
+          lastSeenAt: recent.lastSeenAt,
+          group: live.group,
+          worktree: live.worktree,
+        },
+      ]);
+      expect(JSON.stringify(reloaded)).not.toContain(sessionFile);
+      expect(getResumeSession(recent.id)?.sessionFile).toBe(sessionFile);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("live heartbeat suppresses recent; deactivate reveals without deleting", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-resume-live-"));
+    const dbPath = join(root, "dash.sqlite");
+    const cwd = join(root, "proj");
+    mkdirSync(cwd);
+    const sessionFile = join(root, "live.jsonl");
+    try {
+      configureDashboardDb(dbPath);
+      upsertSession({
+        id: "live-1",
+        title: "Live",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      expect(getSessionDashboard().recentSessions).toEqual([]);
+
+      expect(deactivateSession("live-1")).toBe(true);
+      const dash = getSessionDashboard();
+      expect(dash.sessions).toEqual([]);
+      expect(dash.recentSessions).toHaveLength(1);
+      const resumeId = dash.recentSessions[0]!.id;
+      expect(getResumeSession(resumeId)?.sessionId).toBe("live-1");
+
+      setNowForTests(() => t0 + 1000);
+      upsertSession({
+        id: "live-1",
+        title: "Live again",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      expect(getSessionDashboard().sessions).toHaveLength(1);
+      expect(getSessionDashboard().recentSessions).toEqual([]);
+      expect(getResumeSession(resumeId)?.title).toBe("Live again");
+      expect(getResumeSession(resumeId)?.sessionFile).toBe(sessionFile);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("dirty lastSeen batches; no per-heartbeat DB write until flush", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-resume-batch-"));
+    const dbPath = join(root, "dash.sqlite");
+    const cwd = join(root, "proj");
+    mkdirSync(cwd);
+    const sessionFile = join(root, "batch.jsonl");
+    try {
+      configureDashboardDb(dbPath);
+      setResumeLastSeenFlushMsForTests(60_000);
+      const first = upsertSession({
+        id: "batch-1",
+        title: "Batch",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      deactivateSession("batch-1");
+      const resumeId = getSessionDashboard().recentSessions[0]!.id;
+      setNowForTests(() => t0 + 500);
+      upsertSession({
+        id: "batch-1",
+        title: "Batch",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+
+      const baseline = getResumeSession(resumeId)!.lastSeenAt;
+      expect(baseline).toBe(first.lastSeenAt);
+
+      setNowForTests(() => t0 + 5_000);
+      const second = upsertSession({
+        id: "batch-1",
+        title: "Batch",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      expect(second.lastSeenAt).not.toBe(baseline);
+      expect(getResumeSession(resumeId)!.lastSeenAt).toBe(baseline);
+
+      expect(flushDirtyLastSeen()).toBe(1);
+      expect(getResumeSession(resumeId)!.lastSeenAt).toBe(second.lastSeenAt);
+
+      setNowForTests(() => t0 + 10_000);
+      const third = upsertSession({
+        id: "batch-1",
+        title: "Batch",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      expect(getResumeSession(resumeId)!.lastSeenAt).toBe(second.lastSeenAt);
+      flushDashboardDb();
+      expect(getResumeSession(resumeId)!.lastSeenAt).toBe(third.lastSeenAt);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("title change upserts identity immediately without waiting for flush", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-resume-title-"));
+    const dbPath = join(root, "dash.sqlite");
+    const cwd = join(root, "proj");
+    mkdirSync(cwd);
+    const sessionFile = join(root, "title.jsonl");
+    try {
+      configureDashboardDb(dbPath);
+      setResumeLastSeenFlushMsForTests(60_000);
+      upsertSession({
+        id: "title-1",
+        title: "Before",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      deactivateSession("title-1");
+      const resumeId = getSessionDashboard().recentSessions[0]!.id;
+
+      setNowForTests(() => t0 + 2_000);
+      upsertSession({
+        id: "title-1",
+        title: "After",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      expect(getResumeSession(resumeId)?.title).toBe("After");
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("recentSessions display is bounded and omits live ids", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-resume-bound-"));
+    const dbPath = join(root, "dash.sqlite");
+    const cwd = join(root, "proj");
+    mkdirSync(cwd);
+    try {
+      configureDashboardDb(dbPath);
+      const limit = RECENT_SESSIONS_DISPLAY_LIMIT;
+      for (let i = 0; i < limit + 5; i++) {
+        setNowForTests(() => t0 + i * 1000);
+        upsertSession({
+          id: `bound-${i}`,
+          title: `T${i}`,
+          cwd,
+          startedAt: "2026-08-12T00:00:00.000Z",
+          sessionFile: join(root, `bound-${i}.jsonl`),
+        });
+        deactivateSession(`bound-${i}`);
+      }
+      const recents = getSessionDashboard().recentSessions;
+      expect(recents).toHaveLength(limit);
+      expect(recents[0]!.title).toBe(`T${limit + 4}`);
+      expect(recents[limit - 1]!.title).toBe(`T${5}`);
+
+      setNowForTests(() => t0 + 100_000);
+      upsertSession({
+        id: "bound-live",
+        title: "Live newest",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile: join(root, "bound-live.jsonl"),
+      });
+      const withLive = getSessionDashboard();
+      expect(withLive.sessions.map((s) => s.id)).toEqual(["bound-live"]);
+      expect(withLive.recentSessions.some((r) => r.title === "Live newest")).toBe(
+        false,
+      );
+      expect(withLive.recentSessions).toHaveLength(limit);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("location removal cascades resume rows", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-resume-cascade-"));
+    const dbPath = join(root, "dash.sqlite");
+    const cwd = join(root, "proj");
+    mkdirSync(cwd);
+    const sessionFile = join(root, "cascade.jsonl");
+    try {
+      configureDashboardDb(dbPath);
+      const live = upsertSession({
+        id: "cascade-1",
+        title: "Cascade",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile,
+      });
+      deactivateSession("cascade-1");
+      const resumeId = getSessionDashboard().recentSessions[0]!.id;
+      expect(getResumeSession(resumeId)).not.toBeNull();
+
+      expect(
+        removeDashboardLocation(live.group.path, live.worktree.path),
+      ).toBe(true);
+      expect(getSessionDashboard().locations).toEqual([]);
+      expect(getSessionDashboard().recentSessions).toEqual([]);
+      expect(getResumeSession(resumeId)).toBeNull();
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("deleteResumeSession removes one row and notifies", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-resume-del-"));
+    const dbPath = join(root, "dash.sqlite");
+    const cwd = join(root, "proj");
+    mkdirSync(cwd);
+    try {
+      configureDashboardDb(dbPath);
+      upsertSession({
+        id: "del-1",
+        title: "Del",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        sessionFile: join(root, "del.jsonl"),
+      });
+      deactivateSession("del-1");
+      const resumeId = getSessionDashboard().recentSessions[0]!.id;
+
+      let emits = 0;
+      const unsub = subscribeSessionChanges(() => {
+        emits += 1;
+      });
+      expect(deleteResumeSession(resumeId)).toBe(true);
+      expect(getResumeSession(resumeId)).toBeNull();
+      expect(getSessionDashboard().recentSessions).toEqual([]);
+      expect(emits).toBe(1);
+      expect(deleteResumeSession(resumeId)).toBe(false);
+      unsub();
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("exclusiveSessionPid", () => {
   test("returns pid only when no other live session shares it", () => {
     upsertSession({
@@ -247,7 +627,6 @@ describe("exclusiveSessionPid", () => {
 });
 
 describe("consumeLoginAttempt", () => {
-
   test("allows up to max then blocks until window resets", () => {
     for (let i = 0; i < LOGIN_ATTEMPT_MAX; i++) {
       expect(consumeLoginAttempt()).toBe(true);
@@ -257,7 +636,6 @@ describe("consumeLoginAttempt", () => {
     setNowForTests(() => t0 + 60_000);
     expect(consumeLoginAttempt()).toBe(true);
   });
-
 });
 
 describe("subscribeSessionChanges", () => {
@@ -275,7 +653,6 @@ describe("subscribeSessionChanges", () => {
     });
     expect(seen).toEqual([["s1"]]);
 
-    // Title change is meaningful → emit
     upsertSession({
       id: "s1",
       title: "two",

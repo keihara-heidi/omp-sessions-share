@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type {
   PullRequestAction,
+  RecentSessionSummary,
   SessionDashboard,
   SessionSummary,
   WorktreePullRequestStatus,
@@ -56,6 +57,7 @@ export function useSessionDashboard() {
         dashboard.data?.sessions ?? [],
         query,
         dashboard.data?.locations ?? [],
+        dashboard.data?.recentSessions ?? [],
       ),
     [dashboard.data, query],
   );
@@ -79,7 +81,9 @@ export function useSessionDashboard() {
     offline: dashboard.isError && dashboard.data !== undefined,
     failed: dashboard.isError && dashboard.data === undefined,
     hasLocations:
-      dashboard.data !== undefined && dashboard.data.locations.length > 0,
+      dashboard.data !== undefined &&
+      (dashboard.data.locations.length > 0 ||
+        dashboard.data.recentSessions.length > 0),
     isLoggingOut: logout.isPending,
     setQuery,
     clearQuery: useCallback(() => setQuery(""), []),
@@ -193,6 +197,11 @@ export function useDeleteWorktree(
                   location.group.path !== groupPath ||
                   location.worktree.path !== worktree.path,
               ),
+              recentSessions: dashboard.recentSessions.filter(
+                (recent) =>
+                  recent.group.path !== groupPath ||
+                  recent.worktree.path !== worktree.path,
+              ),
             }
           : dashboard,
       );
@@ -225,5 +234,25 @@ export function useDeactivateSession(session: SessionSummary) {
       toast.success("Session removed");
     },
     onError: (error) => toast.error(errorMessage(error, "Could not remove session")),
+  });
+}
+
+/** Resume a remembered session in its original worktree; the dashboard SSE
+ * stream moves it into Live once the daemon reports it — no optimistic move. */
+export function useResumeRecentSession(recent: RecentSessionSummary) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () =>
+      api<{ ok: true }>(
+        `/api/recent-sessions/${encodeURIComponent(recent.id)}/resume`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
+      toast.success(`Resuming ${recent.title}`);
+    },
+    onError: (error) =>
+      toast.error(errorMessage(error, "Could not resume session")),
   });
 }

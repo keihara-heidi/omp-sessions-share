@@ -21,6 +21,8 @@ import {
   decideRequest,
   exclusiveSessionPid,
   getRequest,
+  getResumeSession,
+  getSession,
   getSessionDashboard,
   isSessionInactive,
   listDashboardLocations,
@@ -174,6 +176,16 @@ async function pathIsDirectory(path: string): Promise<boolean> {
   }
 }
 
+async function pathIsRegularFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
+}
+
 /** Discover repository worktrees, then prune locations deleted outside the dashboard. */
 async function reconcileDashboardLocations(): Promise<void> {
   const checks = new Map<string, Promise<boolean>>();
@@ -252,6 +264,8 @@ async function reconcileDashboardLocations(): Promise<void> {
 const DASHBOARD_RECONCILE_INTERVAL_MS = 15_000;
 let dashboardReconcilePromise: Promise<void> | undefined;
 let dashboardReconciledAt = 0;
+/** In-flight resume launches keyed by opaque resumeId (double-click guard). */
+const resumeInFlight = new Set<string>();
 
 function reconcileDashboardLocationsCoalesced(): Promise<void> {
   if (dashboardReconcilePromise) return dashboardReconcilePromise;
@@ -269,6 +283,7 @@ function reconcileDashboardLocationsCoalesced(): Promise<void> {
 export function resetDashboardReconciliationForTests(): void {
   dashboardReconcilePromise = undefined;
   dashboardReconciledAt = 0;
+  resumeInFlight.clear();
 }
 
 async function handleDashboard(
@@ -370,9 +385,17 @@ async function handleEvents(
 }
 
 
+/** Launch init: blank, prompt, or host-only resume path (mutually exclusive). */
+export type LaunchOmpInit =
+  | string
+  | {
+      prompt?: string;
+      resumeSessionFile?: string;
+    };
+
 type LaunchOmp = (
   worktreePath: string,
-  initialPrompt?: string,
+  init?: LaunchOmpInit,
 ) => Promise<void>;
 
 type CreateWorktree = (advertisedPaths: string[]) => Promise<{ path: string }>;
@@ -397,15 +420,35 @@ type ApiDeps = {
   mergePullRequest?: (status: WorktreePullRequestStatus) => Promise<void>;
 };
 
+function normalizeLaunchInit(init?: LaunchOmpInit): {
+  prompt?: string;
+  resumeSessionFile?: string;
+} {
+  if (init === undefined) return {};
+  if (typeof init === "string") return { prompt: init };
+  const prompt = init.prompt;
+  const resumeSessionFile = init.resumeSessionFile;
+  if (prompt !== undefined && resumeSessionFile !== undefined) {
+    throw new Error("prompt and resumeSessionFile are mutually exclusive");
+  }
+  return {
+    ...(prompt !== undefined ? { prompt } : {}),
+    ...(resumeSessionFile !== undefined ? { resumeSessionFile } : {}),
+  };
+}
+
 export function buildOmpTerminalArgs(
   worktreePath: string,
   ompPath: string,
-  initialPrompt?: string,
+  init?: LaunchOmpInit,
 ): string[] {
+  const { prompt, resumeSessionFile } = normalizeLaunchInit(init);
   const script =
-    initialPrompt === undefined
-      ? 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv'
-      : 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " @/dev/null " & quote & "$(/usr/bin/printf %s " & quoted form of item 3 of argv & " | /usr/bin/base64 -D)" & quote';
+    resumeSessionFile !== undefined
+      ? 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " --resume " & quoted form of item 3 of argv'
+      : prompt === undefined
+        ? 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv'
+        : 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " @/dev/null " & quote & "$(/usr/bin/printf %s " & quoted form of item 3 of argv & " | /usr/bin/base64 -D)" & quote';
   const argv = [
     "/usr/bin/osascript",
     "-e",
@@ -417,25 +460,83 @@ export function buildOmpTerminalArgs(
     worktreePath,
     ompPath,
   ];
-  if (initialPrompt !== undefined) {
-    argv.push(Buffer.from(initialPrompt).toString("base64"));
+  if (resumeSessionFile !== undefined) {
+    argv.push(resumeSessionFile);
+  } else if (prompt !== undefined) {
+    argv.push(Buffer.from(prompt).toString("base64"));
   }
   return argv;
 }
 
 async function launchOmpInTerminal(
   worktreePath: string,
-  initialPrompt?: string,
+  init?: LaunchOmpInit,
 ): Promise<void> {
   if (!(await stat(worktreePath)).isDirectory()) {
     throw new Error("worktree is not a directory");
   }
   const ompPath = join(homedir(), ".local", "bin", "omp-share");
-  const proc = Bun.spawn(buildOmpTerminalArgs(worktreePath, ompPath, initialPrompt), {
+  const proc = Bun.spawn(buildOmpTerminalArgs(worktreePath, ompPath, init), {
     stdout: "ignore",
     stderr: "ignore",
   });
   if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
+}
+
+
+async function handleResumeRecentSession(
+  req: Request,
+  config: ShareConfig,
+  resumeId: string,
+  launchOmp: LaunchOmp,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isValidId(resumeId)) return err("Invalid resumeId", 400);
+
+  if (resumeInFlight.has(resumeId)) {
+    return err("Resume already in progress", 409);
+  }
+
+  const row = getResumeSession(resumeId);
+  if (!row) return err("Session not found", 404);
+
+  if (getSession(row.sessionId)) {
+    return err("Session is already live", 409);
+  }
+
+  const worktreePath = row.worktree.path;
+  if (!isAdvertisedWorktreePath(worktreePath)) {
+    return err("Worktree not found", 404);
+  }
+
+  try {
+    if (!(await pathIsDirectory(worktreePath))) {
+      return err("Worktree not found", 404);
+    }
+  } catch {
+    return err("Could not resume session", 500);
+  }
+
+  // Host-only path from the private row — never accept client-supplied paths.
+  const sessionFile = row.sessionFile;
+  try {
+    if (!(await pathIsRegularFile(sessionFile))) {
+      return err("Session not found", 404);
+    }
+  } catch {
+    return err("Could not resume session", 500);
+  }
+
+  resumeInFlight.add(resumeId);
+  try {
+    await launchOmp(worktreePath, { resumeSessionFile: sessionFile });
+    return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return err("Could not resume session", 500);
+  } finally {
+    resumeInFlight.delete(resumeId);
+  }
 }
 
 async function handleLaunchSession(
@@ -938,6 +1039,18 @@ export async function handleApi(
   if (pathname === "/api/events" && method === "GET") {
     return handleEvents(req, config);
   }
+  {
+    const m = /^\/api\/recent-sessions\/([^/]+)\/resume$/.exec(pathname);
+    if (m && method === "POST") {
+      return handleResumeRecentSession(
+        req,
+        config,
+        decodeURIComponent(m[1]!),
+        launchOmp,
+      );
+    }
+  }
+
 
   {
     const m = /^\/api\/sessions\/([^/]+)\/deactivate$/.exec(pathname);

@@ -3,7 +3,7 @@
 import { Folder, FolderGit2, Plus } from "lucide-react";
 import type { SessionSummary } from "@/lib/contracts";
 import type { SessionGroup, WorktreeGroup } from "@/app/components/group-sessions";
-import { SessionButton, tildify } from "@/app/components/session-list";
+import { tildify, WorktreeSessionLists } from "@/app/components/session-list";
 import { DeleteWorktreeButton } from "@/app/components/worktree-delete-button";
 import { NewSessionButton } from "@/app/components/new-session-button";
 import {
@@ -27,7 +27,6 @@ import {
   GroupSummary,
   GroupSummaryText,
   GroupTitleRow,
-  SessionItems,
   TouchButton,
   WorktreeBlock,
   WorktreeHeading,
@@ -94,20 +93,12 @@ function WorktreeSection({
         worktree={worktree}
         enabled={group.kind === "repository" && Boolean(worktree.branch)}
       />
-      {worktree.sessions.length > 0 ? (
-        <SessionItems>
-          {worktree.sessions.map((session) => (
-            <li key={session.id}>
-              <SessionButton
-                session={session}
-                now={now}
-                openingId={openingId}
-                onSelect={onSelect}
-              />
-            </li>
-          ))}
-        </SessionItems>
-      ) : null}
+      <WorktreeSessionLists
+        worktree={worktree}
+        now={now}
+        openingId={openingId}
+        onSelect={onSelect}
+      />
     </WorktreeBlock>
   );
 }
@@ -152,7 +143,8 @@ export function SessionGroups({
     <GroupStack>
       {groups.map((group) => {
         const count = group.worktrees.reduce(
-          (n, worktree) => n + worktree.sessions.length,
+          (n, worktree) =>
+            n + worktree.sessions.length + worktree.recentSessions.length,
           0,
         );
         const Icon = group.kind === "repository" ? FolderGit2 : Folder;

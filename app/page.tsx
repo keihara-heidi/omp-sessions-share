@@ -74,7 +74,7 @@ export default function DashboardPage() {
       ) : null}
 
       {locations !== undefined ? (
-        locations.length === 0 ? (
+        !hasLocations ? (
           <NoSessions />
         ) : groups.length === 0 ? (
           <NoResults query={query} onClear={clearQuery} />

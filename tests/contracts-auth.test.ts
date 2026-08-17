@@ -7,10 +7,12 @@ import {
   parseCreateWorktreeInput,
   parseLaunchSessionInput,
   parseHostSessionHeartbeat,
+  parseRecentSessionSummary,
   parseRequestDecision,
   parseSessionWorktree,
   parseSessionGroup,
   parseSessionSummary,
+  type RecentSessionSummary,
   type SessionSummary,
   readJsonBody,
 } from "../lib/contracts";
@@ -108,6 +110,75 @@ describe("contracts validators", () => {
         id: "s1",
         cwd: "/tmp",
         startedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    ).toBeNull();
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        sessionFile: "/Users/dev/.omp/sessions/s1.jsonl",
+      }),
+    ).toEqual({
+      id: "s1",
+      title: "t",
+      cwd: "/tmp",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      sessionFile: "/Users/dev/.omp/sessions/s1.jsonl",
+    });
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        sessionFile: "relative/s1.jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        sessionFile: "/tmp/s1.txt",
+      }),
+    ).toBeNull();
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        sessionFile: `/tmp/${"x".repeat(1020)}.jsonl`,
+      }),
+    ).toBeNull();
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        sessionFile: "/tmp/bad\nname.jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        sessionFile: "/tmp/bad\0name.jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      parseHostSessionHeartbeat({
+        id: "s1",
+        title: "t",
+        cwd: "/tmp",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        sessionFile: 42,
       }),
     ).toBeNull();
 
@@ -265,6 +336,61 @@ describe("contracts validators", () => {
       id: "mobile-stable-id_1",
     });
     expect(parsed?.id).toBe("mobile-stable-id_1");
+  });
+
+  test("parseRecentSessionSummary and public parsers omit sessionFile", () => {
+    const recent: RecentSessionSummary = {
+      id: "s1",
+      title: "t",
+      lastSeenAt: "2026-01-01T00:00:01.000Z",
+      group: {
+        kind: "repository",
+        name: "project",
+        path: "/tmp/project",
+      },
+      worktree: { name: "project", path: "/tmp/project" },
+    };
+    expect(parseRecentSessionSummary(recent)).toEqual(recent);
+    expect(
+      parseRecentSessionSummary({
+        ...recent,
+        sessionFile: "/secret/session.jsonl",
+      }),
+    ).toEqual(recent);
+    expect(
+      parseRecentSessionSummary({
+        id: "s1",
+        title: "t",
+        lastSeenAt: "2026-01-01T00:00:01.000Z",
+      }),
+    ).toBeNull();
+    expect(
+      parseRecentSessionSummary({
+        ...recent,
+        group: { kind: "nope", name: "project", path: "/tmp/project" },
+      }),
+    ).toBeNull();
+
+    const summary = parseSessionSummary({
+      id: "s1",
+      title: "t",
+      cwd: "/tmp/project",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      lastSeenAt: "2026-01-01T00:00:01.000Z",
+      group: recent.group,
+      worktree: recent.worktree,
+      sessionFile: "/secret/session.jsonl",
+    });
+    expect(summary).toEqual({
+      id: "s1",
+      title: "t",
+      cwd: "/tmp/project",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      lastSeenAt: "2026-01-01T00:00:01.000Z",
+      group: recent.group,
+      worktree: recent.worktree,
+    });
+    expect(summary && "sessionFile" in summary).toBe(false);
   });
 
   test("bounds JSON request bodies at 16KiB default", async () => {

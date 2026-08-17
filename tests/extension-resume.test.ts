@@ -11,6 +11,7 @@ import ompSessionsShareExtension, {
   onSessionReady,
   parseShareCommand,
   sanitizeOpenRouterResponsesPayload,
+  sessionFileOf,
   submitEditorCommandPreservingDraft,
   versionCompatible,
 } from "../extension";
@@ -18,14 +19,18 @@ import ompSessionsShareExtension, {
 test("OMP startup and resume automatically enable dashboard sharing", async () => {
   let shareStarts = 0;
   let sessionId = "started_session";
+  let sessionFile: string | undefined = "/tmp/started_session.jsonl";
   const ctx = {
     hasUI: true,
     cwd: "/tmp/collab-startup",
     sessionManager: {
       getSessionId: () => sessionId,
       getSessionName: () => "Collab startup",
+      getSessionFile: () => sessionFile,
     },
   } as unknown as ExtensionContext;
+
+  expect(sessionFileOf(ctx)).toBe("/tmp/started_session.jsonl");
 
   await onSessionReady(ctx, async () => {
     shareStarts++;
@@ -36,10 +41,17 @@ test("OMP startup and resume automatically enable dashboard sharing", async () =
   expect(shareStarts).toBe(1);
 
   sessionId = "resumed_session";
+  sessionFile = "/tmp/resumed_session.jsonl";
+  expect(sessionFileOf(ctx)).toBe("/tmp/resumed_session.jsonl");
   await onSessionReady(ctx, async () => {
     shareStarts++;
   });
   expect(shareStarts).toBe(2);
+
+  sessionFile = undefined;
+  expect(sessionFileOf(ctx)).toBeUndefined();
+  sessionFile = "   ";
+  expect(sessionFileOf(ctx)).toBeUndefined();
 });
 
 test("session lifecycle waits for automatic sharing startup", async () => {
@@ -49,11 +61,22 @@ test("session lifecycle waits for automatic sharing startup", async () => {
       handlers.set(event, handler);
     },
   } as unknown as ExtensionAPI;
-  const ctx = { hasUI: false } as ExtensionContext;
+  let sessionFile: string | undefined = "/tmp/lifecycle-start.jsonl";
+  const ctx = {
+    hasUI: false,
+    sessionManager: {
+      getSessionId: () => "lifecycle_session",
+      getSessionName: () => "Lifecycle",
+      getSessionFile: () => sessionFile,
+    },
+  } as unknown as ExtensionContext;
 
   ompSessionsShareExtension(pi);
 
+  expect(sessionFileOf(ctx)).toBe("/tmp/lifecycle-start.jsonl");
   const started = handlers.get("session_start")?.({}, ctx);
+  sessionFile = "/tmp/lifecycle-switch.jsonl";
+  expect(sessionFileOf(ctx)).toBe("/tmp/lifecycle-switch.jsonl");
   const switched = handlers.get("session_switch")?.({}, ctx);
   expect(started).toBeInstanceOf(Promise);
   expect(switched).toBeInstanceOf(Promise);
