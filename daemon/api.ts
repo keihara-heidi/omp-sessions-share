@@ -428,7 +428,7 @@ async function launchOmpInTerminal(
   if (!(await stat(worktreePath)).isDirectory()) {
     throw new Error("worktree is not a directory");
   }
-  const ompPath = join(homedir(), ".local", "bin", "omp");
+  const ompPath = join(homedir(), ".local", "bin", "omp-share");
   const proc = Bun.spawn(buildOmpTerminalArgs(worktreePath, ompPath, initialPrompt), {
     stdout: "ignore",
     stderr: "ignore",
