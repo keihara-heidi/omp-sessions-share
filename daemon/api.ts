@@ -395,20 +395,15 @@ type ApiDeps = {
   ) => boolean;
 };
 
-async function launchOmpInTerminal(
+export function buildOmpTerminalArgs(
   worktreePath: string,
+  ompPath: string,
   initialPrompt?: string,
-): Promise<void> {
-  if (!(await stat(worktreePath)).isDirectory()) {
-    throw new Error("worktree is not a directory");
-  }
-  const ompPath = join(homedir(), ".local", "bin", "omp-share");
-  // An empty @file selects OMP's immediate initial-message path without
-  // changing the prompt text; a bare positional may remain as an editor draft.
+): string[] {
   const script =
     initialPrompt === undefined
       ? 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv'
-      : 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " @/dev/null " & quoted form of item 3 of argv';
+      : 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " @/dev/null " & quote & "$(/usr/bin/printf %s " & quoted form of item 3 of argv & " | /usr/bin/base64 -D)" & quote';
   const argv = [
     "/usr/bin/osascript",
     "-e",
@@ -420,8 +415,24 @@ async function launchOmpInTerminal(
     worktreePath,
     ompPath,
   ];
-  if (initialPrompt !== undefined) argv.push(initialPrompt);
-  const proc = Bun.spawn(argv, { stdout: "ignore", stderr: "ignore" });
+  if (initialPrompt !== undefined) {
+    argv.push(Buffer.from(initialPrompt).toString("base64"));
+  }
+  return argv;
+}
+
+async function launchOmpInTerminal(
+  worktreePath: string,
+  initialPrompt?: string,
+): Promise<void> {
+  if (!(await stat(worktreePath)).isDirectory()) {
+    throw new Error("worktree is not a directory");
+  }
+  const ompPath = join(homedir(), ".local", "bin", "omp-share");
+  const proc = Bun.spawn(buildOmpTerminalArgs(worktreePath, ompPath, initialPrompt), {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
   if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
 }
 
