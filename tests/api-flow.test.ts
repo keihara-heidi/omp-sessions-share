@@ -3,7 +3,11 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
-import { handleApi, resetDashboardReconciliationForTests } from "../daemon/api";
+import {
+  buildOmpTerminalArgs,
+  handleApi,
+  resetDashboardReconciliationForTests,
+} from "../daemon/api";
 import { DASHBOARD_COOKIE_NAME } from "../lib/auth";
 import {
   deactivateSession,
@@ -94,6 +98,26 @@ async function rsaPair(): Promise<CryptoKeyPair> {
     ["encrypt", "decrypt"],
   )) as CryptoKeyPair;
 }
+
+describe("buildOmpTerminalArgs", () => {
+  test("delivers a multiline prompt as one decoded argument", () => {
+    const prompt = "Resolve Merge Conflicts\n\nGoal:\nPreserve the complete prompt.";
+    const args = buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp", prompt);
+
+    expect(args[4]).toContain("$(/usr/bin/printf %s ");
+    expect(args[4]).toContain("@/dev/null");
+    expect(args[4]).not.toContain(prompt);
+    expect(args.at(-1)).not.toContain("\n");
+    expect(Buffer.from(args.at(-1)!, "base64").toString()).toBe(prompt);
+  });
+
+  test("launches plain sessions without a prompt pipeline", () => {
+    const args = buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp");
+
+    expect(args[4]).not.toContain("/usr/bin/base64");
+    expect(args.at(-1)).toBe("/tmp/omp");
+  });
+});
 
 beforeEach(() => {
   resetStoreForTests();
