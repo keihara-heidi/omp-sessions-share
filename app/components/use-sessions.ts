@@ -92,10 +92,13 @@ export function useSessionDashboard() {
 
 export function useLaunchSession(worktree: WorktreeGroup) {
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (prompt?: string) =>
       api<{ ok: true }>(
         "/api/sessions/launch",
-        postJson({ worktreePath: worktree.path }),
+        postJson({
+          worktreePath: worktree.path,
+          ...(prompt === undefined ? {} : { prompt }),
+        }),
       ),
     onSuccess: () => toast.success(`Started OMP in ${worktree.name}`),
     onError: (error) => toast.error(errorMessage(error, "Could not start session")),

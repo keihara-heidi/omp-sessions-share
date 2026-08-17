@@ -287,12 +287,18 @@ export function parseHostSessionHeartbeat(
 }
 
 /** Browser request to start a local OMP session in a live worktree. */
-export type LaunchSessionInput = { worktreePath: string };
+export type LaunchSessionInput = { worktreePath: string; prompt?: string };
 
 export function parseLaunchSessionInput(v: unknown): LaunchSessionInput | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
-  const { worktreePath } = v as Record<string, unknown>;
-  return isNonEmptyString(worktreePath, 1024) ? { worktreePath } : null;
+  const { worktreePath, prompt } = v as Record<string, unknown>;
+  if (!isNonEmptyString(worktreePath, 1024)) return null;
+  if (prompt === undefined || (typeof prompt === "string" && prompt.trim() === "")) {
+    return { worktreePath };
+  }
+  return typeof prompt === "string" && prompt.length <= 16_384
+    ? { worktreePath, prompt }
+    : null;
 }
 
 /** Browser request to create a linked Git worktree for a live repo group. */
