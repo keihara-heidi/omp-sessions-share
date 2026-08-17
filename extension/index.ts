@@ -17,7 +17,6 @@
  * ws://127.0.0.1:7466; password-gated guest links wrap config.publicOrigin via https://my.omp.sh/#…
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -224,13 +223,14 @@ function findCodingAgentRoot(): string | null {
 		candidates.push(path.join(home, ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent"));
 	}
 
-	try {
-		const require = createRequire(import.meta.url);
-		const pkgJson = require.resolve("@oh-my-pi/pi-coding-agent/package.json");
-		candidates.push(path.dirname(pkgJson));
-	} catch {
-		// not resolvable from extension path
-	}
+	// createRequire().resolve() can spin at 100% CPU forever inside the compiled
+	// omp binary when cwd is outside this package (standalone-bun resolver falls
+	// back to cwd-based resolution). The dependency lives at a known relative
+	// path (own node_modules, or hoisted sibling) — check those directly instead.
+	candidates.push(
+		path.join(import.meta.dir, "../node_modules/@oh-my-pi/pi-coding-agent"),
+		path.join(import.meta.dir, "../../@oh-my-pi/pi-coding-agent"),
+	);
 
 	for (const root of candidates) {
 		if (existsSync(path.join(root, "package.json"))) return root;
