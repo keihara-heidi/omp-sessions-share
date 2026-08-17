@@ -1,15 +1,15 @@
 "use client";
 
-import { Folder, FolderGit2, Play, Plus } from "lucide-react";
+import { Folder, FolderGit2, Plus } from "lucide-react";
 import type { SessionSummary } from "@/lib/contracts";
 import type { SessionGroup, WorktreeGroup } from "@/app/components/group-sessions";
 import { SessionButton, tildify } from "@/app/components/session-list";
 import { DeleteWorktreeButton } from "@/app/components/worktree-delete-button";
+import { NewSessionButton } from "@/app/components/new-session-button";
 import {
   useCreateWorktree,
   useLaunchPullRequestTask,
   useMergePullRequest,
-  useLaunchSession,
   usePullRequestStatus,
 } from "@/app/components/use-sessions";
 import {
@@ -79,8 +79,6 @@ function WorktreeSection({
   openingId: string | null;
   onSelect: (session: SessionSummary) => void;
 }) {
-  const launch = useLaunchSession(worktree);
-
   return (
     <WorktreeBlock label={`Worktree ${worktree.name}`}>
       <WorktreeToolbar>
@@ -89,16 +87,7 @@ function WorktreeSection({
           branch={worktree.branch}
           path={worktree.path !== group.path ? tildify(worktree.path) : undefined}
         />
-        <TouchButton
-          wide
-          primary
-          onClick={() => launch.mutate()}
-          disabled={launch.isPending}
-          aria-label={`Start a new OMP session in ${worktree.name}`}
-        >
-          <BusyIcon busy={launch.isPending} idle={<Play aria-hidden />} />
-          {launch.isPending ? "Starting…" : "New session"}
-        </TouchButton>
+        <NewSessionButton worktree={worktree} />
         {group.kind === "repository" && worktree.path !== group.path ? <DeleteWorktreeButton group={group} worktree={worktree} /> : null}
       </WorktreeToolbar>
       <PullRequestSection

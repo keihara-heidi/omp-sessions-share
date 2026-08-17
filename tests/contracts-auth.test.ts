@@ -5,6 +5,7 @@ import {
   isValidPublicKeyJwk,
   parseCreateJoinRequestInput,
   parseCreateWorktreeInput,
+  parseLaunchSessionInput,
   parseHostSessionHeartbeat,
   parseRequestDecision,
   parseSessionWorktree,
@@ -169,6 +170,23 @@ describe("contracts validators", () => {
     ).toBeNull();
     expect(isEncryptedLink({ algorithm: "RSA-OAEP-256", ciphertext })).toBe(true);
     expect(isEncryptedLink({ algorithm: "none", ciphertext })).toBe(false);
+  });
+
+  test("parses optional launch prompts without changing content", () => {
+    const prompt = "Fix the failing test\n\nKeep this indentation:\n  exact";
+    expect(parseLaunchSessionInput({ worktreePath: "/tmp/repo" })).toEqual({
+      worktreePath: "/tmp/repo",
+    });
+    expect(parseLaunchSessionInput({ worktreePath: "/tmp/repo", prompt })).toEqual({
+      worktreePath: "/tmp/repo",
+      prompt,
+    });
+    expect(
+      parseLaunchSessionInput({ worktreePath: "/tmp/repo", prompt: " \n\t " }),
+    ).toEqual({ worktreePath: "/tmp/repo" });
+    expect(
+      parseLaunchSessionInput({ worktreePath: "/tmp/repo", prompt: 42 }),
+    ).toBeNull();
   });
 
   test("parseSessionGroup and parseSessionWorktree valid/invalid", () => {

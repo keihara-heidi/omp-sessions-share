@@ -464,7 +464,7 @@ async function handleLaunchSession(
   }
 
   try {
-    await launchOmp(input.worktreePath);
+    await launchOmp(input.worktreePath, input.prompt);
     return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return err("Could not start session", 500);
