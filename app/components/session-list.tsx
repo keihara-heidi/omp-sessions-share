@@ -1,19 +1,16 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
+import type { ReactNode } from "react";
 import { SessionCard } from "@/components/ds/session-card";
 import { SessionItems } from "@/components/ds/session";
 import { Badge } from "@/components/ds/badge";
-import {
-  TypographyH2,
-  TypographyMuted,
-} from "@/components/ui/typography";
-import {
-  useDeactivateSession,
-  useResumeRecentSession,
-} from "@/app/components/use-sessions";
+import { TypographyH2, TypographyMuted } from "@/components/ui/typography";
+import { useDeactivateSession, useDeleteRecentSession, useResumeRecentSession } from "@/app/components/use-sessions";
 import type { RecentSessionSummary, SessionSummary } from "@/lib/contracts";
 import type { SessionProjection } from "@/app/components/group-sessions";
 import { tildify } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 function freshness(lastSeenAt: string, now: number): string {
   const seconds = Math.max(0, Math.round((now - Date.parse(lastSeenAt)) / 1000));
@@ -37,7 +34,6 @@ function sessionContext(session: SessionSummary | RecentSessionSummary): string 
     ? session.group.name
     : `${session.group.name} / ${session.worktree.name}`;
 }
-
 
 export function SessionButton({
   session,
@@ -84,18 +80,26 @@ export function RecentSessionButton({
   now: number;
   openingId: string | null;
 }) {
+  const { mutate: deleteSession, isPending: isDeleting } =
+    useDeleteRecentSession();
   const { mutate: resumeSession, isPending: isResuming } =
     useResumeRecentSession();
 
   return (
     <SessionCard
       presence="recent"
-      disabled={openingId !== null || isResuming}
+      disabled={openingId !== null || isResuming || isDeleting}
       busy={isResuming}
       onSelect={() => resumeSession(recent.id)}
       actionLabel="Resume"
       busyLabel="Resuming…"
       title={recent.title}
+      removal={{
+        onRemove: () => deleteSession(recent.id),
+        label: `Remove ${recent.title} from recent sessions`,
+        removing: isDeleting,
+        title: "Forget session",
+      }}
       context={sessionContext(recent)}
       path={tildify(recent.worktree.path)}
       branch={recent.worktree.branch}
@@ -104,20 +108,27 @@ export function RecentSessionButton({
   );
 }
 
-function SectionHeading({
-  id,
-  title,
-  count,
-}: {
-  id: string;
-  title: string;
+function SessionSection({ title, count, children }: {
+  title: "Live" | "Recent";
   count: number;
+  children: ReactNode;
 }) {
+  const id = `${title.toLowerCase()}-sessions-heading`;
   return (
-    <div className="mb-2 flex items-center justify-between gap-3">
-      <TypographyH2 id={id}>{title}</TypographyH2>
-      <Badge variant="neutral" size="xs">{count}</Badge>
-    </div>
+    <section aria-labelledby={id}>
+      <Collapsible defaultOpen={title === "Live"}>
+        <div className="mb-2">
+          <TypographyH2 id={id}>
+            <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <ChevronRight aria-hidden className="size-4 shrink-0 text-dim transition-transform group-data-[state=open]:rotate-90" />
+              <span className="flex-1">{title}</span>
+              <Badge variant="neutral" size="xs">{count}</Badge>
+            </CollapsibleTrigger>
+          </TypographyH2>
+        </div>
+        <CollapsibleContent>{children}</CollapsibleContent>
+      </Collapsible>
+    </section>
   );
 }
 
@@ -134,12 +145,7 @@ export function SessionLists({
 }) {
   return (
     <div className="flex flex-col gap-7">
-      <section aria-labelledby="live-sessions-heading">
-        <SectionHeading
-          id="live-sessions-heading"
-          title="Live"
-          count={sessions.live.length}
-        />
+      <SessionSection title="Live" count={sessions.live.length}>
         {sessions.live.length > 0 ? (
           <SessionItems>
             {sessions.live.map((session) => (
@@ -156,14 +162,9 @@ export function SessionLists({
         ) : (
           <TypographyMuted>Nothing is running right now.</TypographyMuted>
         )}
-      </section>
+      </SessionSection>
 
-      <section aria-labelledby="recent-sessions-heading">
-        <SectionHeading
-          id="recent-sessions-heading"
-          title="Recent"
-          count={sessions.recent.length}
-        />
+      <SessionSection title="Recent" count={sessions.recent.length}>
         {sessions.recent.length > 0 ? (
           <SessionItems>
             {sessions.recent.map((recent) => (
@@ -179,7 +180,7 @@ export function SessionLists({
         ) : (
           <TypographyMuted>No resumable sessions.</TypographyMuted>
         )}
-      </section>
+      </SessionSection>
     </div>
   );
 }

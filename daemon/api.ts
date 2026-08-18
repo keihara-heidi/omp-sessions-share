@@ -16,6 +16,7 @@ import {
   LOGIN_ATTEMPT_WINDOW_SECONDS,
   consumeLoginAttempt,
   createRequest,
+  deleteResumeSession,
   deactivateSession,
   decideRequest,
   exclusiveSessionPid,
@@ -537,6 +538,18 @@ async function handleResumeRecentSession(
   } finally {
     resumeInFlight.delete(resumeId);
   }
+}
+
+async function handleDeleteRecentSession(
+  req: Request,
+  config: ShareConfig,
+  resumeId: string,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isValidId(resumeId)) return err("Invalid resumeId", 400);
+  if (!deleteResumeSession(resumeId)) return err("Session not found", 404);
+  return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }
 
 async function handleLaunchSession(
@@ -1070,6 +1083,16 @@ export async function handleApi(
   }
   if (pathname === "/api/events" && method === "GET") {
     return handleEvents(req, config);
+  }
+  {
+    const m = /^\/api\/recent-sessions\/([^/]+)$/.exec(pathname);
+    if (m && method === "DELETE") {
+      return handleDeleteRecentSession(
+        req,
+        config,
+        decodeURIComponent(m[1]!),
+      );
+    }
   }
   {
     const m = /^\/api\/recent-sessions\/([^/]+)\/resume$/.exec(pathname);

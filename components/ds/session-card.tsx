@@ -33,6 +33,7 @@ export function SessionCard({
     onRemove: () => void;
     label: string;
     removing: boolean;
+    title?: string;
   };
   actionLabel?: string;
   busyLabel?: string;
@@ -99,7 +100,7 @@ export function SessionCard({
             onClick={removal.onRemove}
             disabled={removal.removing || disabled}
             aria-label={removal.label}
-            title="Mark inactive"
+            title={removal.title ?? "Mark inactive"}
           >
             {removal.removing ? (
               <LoaderCircle aria-hidden className="animate-spin" />

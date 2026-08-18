@@ -244,3 +244,26 @@ export function useResumeRecentSession() {
       toast.error(errorMessage(error, "Could not resume session")),
   });
 }
+
+export function useDeleteRecentSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (resumeId: string) =>
+      api<{ ok: true }>(
+        `/api/recent-sessions/${encodeURIComponent(resumeId)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: (_data, resumeId) => {
+      updateDashboard(queryClient, (dashboard) => ({
+        ...dashboard,
+        recentSessions: dashboard.recentSessions.filter(
+          (item) => item.id !== resumeId,
+        ),
+      }));
+      toast.success("Recent session removed");
+    },
+    onError: (error) =>
+      toast.error(errorMessage(error, "Could not remove recent session")),
+  });
+}

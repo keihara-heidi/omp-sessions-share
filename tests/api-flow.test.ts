@@ -1446,6 +1446,43 @@ describe("recent session resume", () => {
     };
   }
 
+  test("dashboard can forget a recent session by opaque id", async () => {
+    const seeded = seedRecent();
+    const path = `/api/recent-sessions/${seeded.resumeId}`;
+
+    const unauthorized = await handleApi(
+      new Request(`http://local${path}`, { method: "DELETE" }),
+      config,
+      path,
+    );
+    expect(unauthorized?.status).toBe(401);
+    expect(listRecentSessions()).toHaveLength(1);
+
+    const cookie = await loginCookie();
+    const removed = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "DELETE",
+        headers: { cookie },
+      }),
+      config,
+      path,
+    );
+    expect(removed?.status).toBe(200);
+    expect(removed?.headers.get("cache-control")).toBe("no-store");
+    expect(await removed?.json()).toEqual({ data: { ok: true } });
+    expect(listRecentSessions()).toEqual([]);
+
+    const missing = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "DELETE",
+        headers: { cookie },
+      }),
+      config,
+      path,
+    );
+    expect(missing?.status).toBe(404);
+  });
+
   test("cookie resume launches exact stored worktree and sessionFile", async () => {
     const seeded = seedRecent();
     const cookie = await loginCookie();
