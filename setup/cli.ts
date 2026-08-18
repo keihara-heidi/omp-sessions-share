@@ -501,11 +501,20 @@ async function cmdUpdate(): Promise<void> {
     remote.exitCode === 0 ? parseMainCommit(remote.stdout.toString()) : null;
   if (!commit) {
     const detail = remote.stderr.toString().trim();
-    fail(`update failed: could not resolve latest main commit${detail ? `: ${detail}` : ""}`);
+    fail(
+      `update failed: could not resolve latest main commit${detail ? `: ${detail}` : ""}`,
+    );
   }
 
+  const ompLauncher = path.join(homedir(), ".local", "bin", "omp");
   const upgrade = Bun.spawnSync(
-    ["omp", "plugin", "install", `${PLUGIN_GITHUB_SOURCE}#${commit}`, "--force"],
+    [
+      ompLauncher,
+      "plugin",
+      "install",
+      `${PLUGIN_GITHUB_SOURCE}#${commit}`,
+      "--force",
+    ],
     {
       stdout: "inherit",
       stderr: "inherit",

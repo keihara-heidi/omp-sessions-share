@@ -154,7 +154,8 @@ describe("data-safe update", () => {
       source.indexOf("async function cmdUninstall"),
     );
     expect(update).toContain('"git", "ls-remote"');
-    expect(update).toContain('"plugin", "install"');
+    expect(update).toContain('"plugin",\n      "install"');
+    expect(update).toContain('path.join(homedir(), ".local", "bin", "omp")');
     expect(update).toContain("resolveInstalledSetupEntry()");
     expect(update).not.toContain("uninstallLocalRuntime");
     expect(update).not.toContain("getDashboardDbPath");
