@@ -39,8 +39,9 @@ No Vercel, Redis, cloud database, or central service.
 3. On a tailnet-connected phone, open the URL and enter the password.
 4. Open **Sessions** to join a Live session, remove a stale Live row, or resume an exact prior conversation from Recent.
 5. Open **Workspaces** to start a blank session in an advertised worktree. Repository groups can create a sibling linked worktree with `git worktree` and start OMP there; linked worktrees also expose delete, pull-request repair, and ready-to-merge actions.
-6. Removing a Live session hides it and SIGTERMs that session's OMP process. The IDE or terminal app is not closed. If another live dashboard session shares the same process, only the dashboard row is removed.
-7. After a Live row expires (15 seconds without a heartbeat) or is removed, it appears under **Recent** on Sessions. Tap **Resume** to reopen that exact prior session in the same worktree. Native `/collab` starts automatically after the resumed session heartbeats. The browser never receives the host session JSONL path.
+6. Open **System** to check the daemon, installed runtime, database, Tailscale ingress, local tools, and sleep inhibitor. The page is diagnostic only; follow its terminal instructions outside the dashboard when a check needs attention.
+7. Removing a Live session hides it and SIGTERMs that session's OMP process. The IDE or terminal app is not closed. If another live dashboard session shares the same process, only the dashboard row is removed.
+8. After a Live row expires (15 seconds without a heartbeat) or is removed, it appears under **Recent** on Sessions. Tap **Resume** to reopen that exact prior session in the same worktree. Native `/collab` starts automatically after the resumed session heartbeats. The browser never receives the host session JSONL path.
 
 Register a repository or directory before it has a live session:
 
@@ -50,7 +51,7 @@ Register a repository or directory before it has a live session:
 
 The path defaults to the current session directory. A project folder containing multiple Git repositories registers each repository; a plain folder with no repositories registers as one folder.
 
-The dashboard has two focused pages:
+The dashboard has three focused pages:
 
 ```text
 Sessions (/)
@@ -62,11 +63,19 @@ Workspaces (/workspaces/)
     └── Worktree
         ├── Live / Recent counts and compact session titles (tap Live to join)
         └── PR status and workspace actions
+
+System (/system/)
+├── Core
+├── Connectivity
+├── Tools
+└── Power
 ```
 
 Each page has typo-tolerant search using the same grouping rules. Sessions searches conversation titles and directories plus repository, worktree, and branch context. Workspaces searches repository, worktree, branch, path, and the compact session titles shown within expanded worktrees; Live rows are direct join shortcuts. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
 
 Dashboard session and location changes arrive as complete snapshots through one authenticated live event stream; no polling or phone reload is needed. EventSource reconnects automatically and receives a fresh snapshot.
+
+System health is fetched independently and cached briefly by the daemon. **Refresh** requests a new snapshot without adding another dashboard event stream. Individual checks fail independently, so available diagnostics remain visible when one local dependency cannot be inspected.
 
 Workspace groups start collapsed. Launching is limited to worktrees advertised by the dashboard’s remembered locations.
 
@@ -80,10 +89,8 @@ The browser receives the collab link encrypted to a non-extractable RSA key gene
 - Consumers destructure and domain-alias only the mutation fields they use:
 
 ```ts
-const {
-  mutate: resumeSession,
-  isPending: isResuming,
-} = useResumeRecentSession();
+const { mutate: resumeSession, isPending: isResuming } =
+  useResumeRecentSession();
 
 resumeSession(recent.id);
 ```
@@ -122,6 +129,7 @@ Uninstall removes the local daemon, Tailscale Serve, launchers, share config, th
 - Host and cookie secrets never leave the Mac.
 - Live presence expires after 15 seconds without a host heartbeat. Remembered worktrees and Recent sessions persist in private SQLite; they do not disappear when the daemon restarts.
 - The browser never receives the host session JSONL path.
+- System health returns fixed summaries only. It never returns raw command output, exception text, process arguments, tokens, cookies, usernames, or private local paths.
 - The public `my.omp.sh` origin serves only OMP's static browser client; session traffic connects to the private tailnet relay.
 
 ## License

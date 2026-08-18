@@ -3,7 +3,6 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 
-
 import type { ShareConfig } from "../shared/config";
 import {
   expireDashboardCookie,
@@ -39,6 +38,7 @@ import {
 import {
   type DashboardLocation,
   type PullRequestAction,
+  type SystemHealth,
   type WorktreePullRequestStatus,
   isJsonContentType,
   isNonEmptyString,
@@ -70,7 +70,6 @@ import {
 } from "./github-pr";
 import { killSessionProcess } from "./session-process";
 
-
 function err(
   error: string,
   status: number,
@@ -90,12 +89,14 @@ function noStore(res: Response): Response {
 }
 
 function usesSecureCookie(request: Request): boolean {
-  const forwarded = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim();
+  const forwarded = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",", 1)[0]
+    ?.trim();
   if (forwarded) return forwarded === "https";
   const host = request.headers.get("host")?.split(":", 1)[0]?.toLowerCase();
   return host !== "localhost" && host !== "127.0.0.1";
 }
-
 
 async function handleLogin(
   req: Request,
@@ -198,7 +199,10 @@ async function reconcileDashboardLocations(): Promise<void> {
     return check;
   };
 
-  const repositoryLocations = new Map<string, ReturnType<typeof listDashboardLocations>>();
+  const repositoryLocations = new Map<
+    string,
+    ReturnType<typeof listDashboardLocations>
+  >();
   for (const location of listDashboardLocations()) {
     if (location.group.kind !== "repository") continue;
     const current = repositoryLocations.get(location.group.path) ?? [];
@@ -384,7 +388,6 @@ async function handleEvents(
   });
 }
 
-
 /** Launch init: blank, prompt, or host-only resume path (mutually exclusive). */
 export type LaunchOmpInit =
   | string
@@ -393,10 +396,7 @@ export type LaunchOmpInit =
       resumeSessionFile?: string;
     };
 
-type LaunchOmp = (
-  worktreePath: string,
-  init?: LaunchOmpInit,
-) => Promise<void>;
+type LaunchOmp = (worktreePath: string, init?: LaunchOmpInit) => Promise<void>;
 
 type CreateWorktree = (advertisedPaths: string[]) => Promise<{ path: string }>;
 type RemoveWorktree = (
@@ -418,6 +418,7 @@ type ApiDeps = {
     action: PullRequestAction,
   ) => boolean;
   mergePullRequest?: (status: WorktreePullRequestStatus) => Promise<void>;
+  getSystemHealth?: () => Promise<SystemHealth>;
 };
 
 function normalizeLaunchInit(init?: LaunchOmpInit): {
@@ -482,7 +483,6 @@ async function launchOmpInTerminal(
   });
   if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
 }
-
 
 async function handleResumeRecentSession(
   req: Request,
@@ -588,7 +588,9 @@ async function handleCreateWorktree(
     (location) => location.group.path === input.groupPath,
   );
   if (groupLocations.length === 0) return err("Repository not found", 404);
-  if (groupLocations.every((location) => location.group.kind !== "repository")) {
+  if (
+    groupLocations.every((location) => location.group.kind !== "repository")
+  ) {
     return err("Not a git repository", 400);
   }
   const advertisedPaths = [
@@ -664,11 +666,15 @@ async function handleDeleteWorktree(
     return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (message === "Not a git repository" || message === "Cannot delete the primary worktree") {
+    if (
+      message === "Not a git repository" ||
+      message === "Cannot delete the primary worktree"
+    ) {
       return err(message, 400);
     }
     if (message === "Worktree not found") return err(message, 404);
-    if (message === "Worktree has uncommitted changes") return err(message, 409);
+    if (message === "Worktree has uncommitted changes")
+      return err(message, 409);
     return err("Could not delete worktree", 500);
   }
 }
@@ -689,7 +695,8 @@ async function handleWorktreePullRequest(
     return err("Worktree not found", 404);
   }
 
-  const loadStatus = deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
+  const loadStatus =
+    deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
   try {
     const status = await loadStatus(path);
     return jsonOk(status, { headers: { "Cache-Control": "no-store" } });
@@ -716,7 +723,8 @@ async function handleMergePullRequest(
     return err("Worktree not found", 404);
   }
 
-  const loadStatus = deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
+  const loadStatus =
+    deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
   let status: WorktreePullRequestStatus;
   try {
     status = await loadStatus(input.worktreePath);
@@ -755,7 +763,8 @@ async function handleLaunchPullRequestTask(
     return err("Worktree not found", 404);
   }
 
-  const loadStatus = deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
+  const loadStatus =
+    deps.getWorktreePullRequestStatus ?? getWorktreePullRequestStatus;
   const buildTask = deps.buildPullRequestTask ?? buildPullRequestTask;
   const actionApplicable =
     deps.isPullRequestActionApplicable ?? isPullRequestActionApplicable;
@@ -788,7 +797,6 @@ async function handleLaunchPullRequestTask(
     return err("Could not start session", 500);
   }
 }
-
 
 async function handleDeactivateSession(
   req: Request,
@@ -912,7 +920,10 @@ async function handleHostHeartbeat(
   const input = parseHostSessionHeartbeat(parsedBody.value);
   if (!input) return err("Invalid body", 400);
   if (isSessionInactive(input.id)) {
-    return jsonOk({ inactive: true }, { headers: { "Cache-Control": "no-store" } });
+    return jsonOk(
+      { inactive: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   try {
@@ -991,6 +1002,24 @@ async function handleHostDecide(
   });
 }
 
+async function handleSystemHealth(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!deps.getSystemHealth) {
+    return err("Service unavailable", 503);
+  }
+  try {
+    const data = await deps.getSystemHealth();
+    return jsonOk(data, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return err("Service unavailable", 503);
+  }
+}
+
 /** Route /api/* — returns null when path is not under /api/. */
 export async function handleApi(
   req: Request,
@@ -1017,6 +1046,9 @@ export async function handleApi(
   }
   if (pathname === "/api/dashboard" && method === "GET") {
     return handleDashboard(req, config);
+  }
+  if (pathname === "/api/system/health" && method === "GET") {
+    return handleSystemHealth(req, config, deps);
   }
   if (pathname === "/api/sessions/launch" && method === "POST") {
     return handleLaunchSession(req, config, launchOmp);
@@ -1050,7 +1082,6 @@ export async function handleApi(
       );
     }
   }
-
 
   {
     const m = /^\/api\/sessions\/([^/]+)\/deactivate$/.exec(pathname);

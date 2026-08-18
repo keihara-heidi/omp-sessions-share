@@ -22,8 +22,10 @@ import {
   closeDashboardPersistence,
   configureDashboardDb,
   flushDashboardDb,
+  listSessions,
   subscribeSessionChanges,
 } from "./store";
+import { createSystemHealthService } from "./system-health";
 
 async function main(): Promise<void> {
   const configPath =
@@ -38,6 +40,15 @@ async function main(): Promise<void> {
       `daemon must bind loopback only (got hostname ${hostname} from localOrigin)`,
     );
   }
+
+  const sleepInhibitor = new MacSleepInhibitor();
+  const systemHealth = createSystemHealthService({
+    isSleepInhibitorActive: () => sleepInhibitor.active,
+    isSleepInhibitorRequired: () => listSessions().length > 0,
+  });
+  const apiDeps = {
+    getSystemHealth: () => systemHealth.getHealth(),
+  };
 
   const server = Bun.serve<SocketData>({
     hostname: "127.0.0.1",
@@ -64,7 +75,14 @@ async function main(): Promise<void> {
       }
 
       if (pathname.startsWith("/api/")) {
-        const res = await handleApi(request, config, pathname);
+        const res = await handleApi(
+          request,
+          config,
+          pathname,
+          undefined,
+          undefined,
+          apiDeps,
+        );
         return res ?? new Response("not found", { status: 404 });
       }
 
@@ -77,7 +95,6 @@ async function main(): Promise<void> {
     websocket: relayWebSocket,
   });
 
-  const sleepInhibitor = new MacSleepInhibitor();
   const unsubscribeSessions = subscribeSessionChanges((sessions) => {
     if (sessions.length > 0) sleepInhibitor.start();
     else sleepInhibitor.stop();

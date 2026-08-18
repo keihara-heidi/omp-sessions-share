@@ -117,13 +117,15 @@ function walkFiles(root: string): string[] {
   return out;
 }
 
-/** Match setup/install.ts copyRuntimeAssets layout (daemon + shared + lib/*). */
+/** Match setup/install.ts copyRuntimeAssets layout (daemon + shared + lib/* + package metadata). */
 function materializeCopiedRuntime(agentDir: string): string {
   const runtimeRoot = join(agentDir, RUNTIME_DIR_NAME);
   mkdirSync(runtimeRoot, { recursive: true });
 
   for (const name of ["daemon", "shared"] as const) {
-    cpSync(join(PACKAGE_ROOT, name), join(runtimeRoot, name), { recursive: true });
+    cpSync(join(PACKAGE_ROOT, name), join(runtimeRoot, name), {
+      recursive: true,
+    });
   }
 
   mkdirSync(join(runtimeRoot, "lib"), { recursive: true });
@@ -131,10 +133,15 @@ function materializeCopiedRuntime(agentDir: string): string {
     cpSync(join(PACKAGE_ROOT, "lib", file), join(runtimeRoot, "lib", file));
   }
 
+  cpSync(join(PACKAGE_ROOT, "package.json"), join(runtimeRoot, "package.json"));
+
   // Minimal web stub so static defaults never reach into the package tree.
   const web = join(runtimeRoot, "daemon", "web");
   mkdirSync(web, { recursive: true });
-  writeFileSync(join(web, "index.html"), "<!doctype html><title>runtime</title>\n");
+  writeFileSync(
+    join(web, "index.html"),
+    "<!doctype html><title>runtime</title>\n",
+  );
 
   // Explicitly ensure no dependency tree is present in the copied runtime.
   rmSync(join(runtimeRoot, "node_modules"), { recursive: true, force: true });
@@ -151,13 +158,18 @@ function assertNoNodeModules(runtimeRoot: string): void {
 
 function assertNoPrisma(runtimeRoot: string): void {
   for (const file of walkFiles(runtimeRoot)) {
-    if (!file.endsWith(".ts") && !file.endsWith(".js") && !file.endsWith(".json")) {
+    if (
+      !file.endsWith(".ts") &&
+      !file.endsWith(".js") &&
+      !file.endsWith(".json")
+    ) {
       continue;
     }
     const text = readFileSync(file, "utf8");
-    expect(text.toLowerCase().includes("prisma"), relative(runtimeRoot, file)).toBe(
-      false,
-    );
+    expect(
+      text.toLowerCase().includes("prisma"),
+      relative(runtimeRoot, file),
+    ).toBe(false);
   }
 }
 
@@ -165,8 +177,12 @@ function assertNoSqliteUnder(runtimeRoot: string): void {
   for (const file of walkFiles(runtimeRoot)) {
     const base = file.split("/").pop() ?? file;
     expect(base.endsWith(".sqlite"), relative(runtimeRoot, file)).toBe(false);
-    expect(base.endsWith(".sqlite-wal"), relative(runtimeRoot, file)).toBe(false);
-    expect(base.endsWith(".sqlite-shm"), relative(runtimeRoot, file)).toBe(false);
+    expect(base.endsWith(".sqlite-wal"), relative(runtimeRoot, file)).toBe(
+      false,
+    );
+    expect(base.endsWith(".sqlite-shm"), relative(runtimeRoot, file)).toBe(
+      false,
+    );
   }
 }
 
@@ -178,8 +194,12 @@ async function importCopiedModules(runtimeRoot: string): Promise<{
   // Runtime-selected path: load from temp copied layout, not PACKAGE_ROOT.
   // Static imports would bind in-tree sources and skip the install boundary.
   const storeUrl = pathToFileURL(join(runtimeRoot, "daemon", "store.ts")).href;
-  const configUrl = pathToFileURL(join(runtimeRoot, "shared", "config.ts")).href;
-  const contractsUrl = pathToFileURL(join(runtimeRoot, "lib", "contracts.ts")).href;
+  const configUrl = pathToFileURL(
+    join(runtimeRoot, "shared", "config.ts"),
+  ).href;
+  const contractsUrl = pathToFileURL(
+    join(runtimeRoot, "lib", "contracts.ts"),
+  ).href;
 
   const [store, config, contracts] = await Promise.all([
     import(storeUrl) as Promise<CopiedStore>,
@@ -227,12 +247,17 @@ describe("INT-03 copied runtime resume", () => {
     expect(dbPath).toBe(join(agentDir, "omp-sessions-share.sqlite"));
     expect(dbPath.startsWith(runtimeRoot + "/")).toBe(false);
     expect(dbPath.startsWith(outsideHome)).toBe(false);
-    expect(config.getShareConfigPath()).toBe(join(agentDir, "omp-sessions-share.json"));
+    expect(config.getShareConfigPath()).toBe(
+      join(agentDir, "omp-sessions-share.json"),
+    );
 
     const worktree = makeTemp("omp-int03-wt-");
     const sessionFile = join(agentDir, "sessions", "exact-resume.jsonl");
     mkdirSync(dirname(sessionFile), { recursive: true });
-    writeFileSync(sessionFile, '{"type":"session"}\n{"type":"message","role":"user"}\n');
+    writeFileSync(
+      sessionFile,
+      '{"type":"session"}\n{"type":"message","role":"user"}\n',
+    );
 
     const t0 = 1_700_000_000_000;
     store.setNowForTests(() => t0);
@@ -264,7 +289,9 @@ describe("INT-03 copied runtime resume", () => {
     expect(recent).not.toHaveProperty("sessionFile");
     expect(recent).not.toHaveProperty("sessionId");
     expect(JSON.stringify(afterDeactivate)).not.toContain(sessionFile);
-    expect(JSON.stringify(store.listRecentSessions())).not.toContain(sessionFile);
+    expect(JSON.stringify(store.listRecentSessions())).not.toContain(
+      sessionFile,
+    );
 
     const privateRow = store.getResumeSession(String(recent.id));
     expect(privateRow?.sessionId).toBe("copied-sess-1");

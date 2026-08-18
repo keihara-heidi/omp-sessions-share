@@ -20,6 +20,7 @@ import {
 import {
   type DashboardDatabase,
   type ResumeSessionRow,
+  DASHBOARD_DB_USER_VERSION,
   checkpointDashboardDb,
   closeDashboardDb,
   deleteDashboardLocation,
@@ -33,7 +34,11 @@ import {
   upsertDashboardLocation,
   upsertResumeSession,
 } from "./dashboard-db";
-import { clearLocationCache, readGitBranch, resolveSessionLocation } from "./location";
+import {
+  clearLocationCache,
+  readGitBranch,
+  resolveSessionLocation,
+} from "./location";
 
 type Timed<T> = { value: T; expiresAt: number };
 
@@ -152,7 +157,8 @@ function writeDashboardLocation(location: DashboardLocation): boolean {
   const previous = dashboardLocations.get(key);
   const lastSessionStartedAt =
     previous &&
-    Date.parse(previous.lastSessionStartedAt) > Date.parse(location.lastSessionStartedAt)
+    Date.parse(previous.lastSessionStartedAt) >
+      Date.parse(location.lastSessionStartedAt)
       ? previous.lastSessionStartedAt
       : location.lastSessionStartedAt;
   const next = { ...location, lastSessionStartedAt };
@@ -209,10 +215,12 @@ export function flushDirtyLastSeen(): number {
   let flushed = 0;
   for (const [sessionId, lastSeenAt] of pending) {
     try {
-      if (touchResumeSessionLastSeen(handle, sessionId, lastSeenAt)) flushed += 1;
+      if (touchResumeSessionLastSeen(handle, sessionId, lastSeenAt))
+        flushed += 1;
     } catch {
       // Best-effort; re-dirty so a later flush/shutdown can retry.
-      if (!dirtyLastSeen.has(sessionId)) dirtyLastSeen.set(sessionId, lastSeenAt);
+      if (!dirtyLastSeen.has(sessionId))
+        dirtyLastSeen.set(sessionId, lastSeenAt);
     }
   }
   if (dirtyLastSeen.size > 0) ensureLastSeenFlushTimer();
@@ -265,6 +273,26 @@ export function configureDashboardLocationPersistence(path: string): void {
     return;
   }
   configureDashboardDb(`${path}.sqlite`, path);
+}
+
+/**
+ * Process-local DB readiness: open handle, expected user_version, SELECT 1.
+ * No writes, no quick_check, no row counts, no paths/errors in the result.
+ */
+export function probeDashboardDbHealth(): "healthy" | "unavailable" {
+  const handle = dashboardDb;
+  if (!handle) return "unavailable";
+  try {
+    const row = handle.db.query("PRAGMA user_version").get() as
+      { user_version: number } | null | undefined;
+    if (!row || row.user_version !== DASHBOARD_DB_USER_VERSION) {
+      return "unavailable";
+    }
+    handle.db.query("SELECT 1").get();
+    return "healthy";
+  } catch {
+    return "unavailable";
+  }
 }
 
 /** Flush, checkpoint, and close the dashboard DB. Safe to call when unset. */
@@ -537,7 +565,8 @@ export function registerDashboardLocations(
 
 export function listDashboardLocations(): DashboardLocation[] {
   return [...dashboardLocations.values()].sort(
-    (a, b) => Date.parse(b.lastSessionStartedAt) - Date.parse(a.lastSessionStartedAt),
+    (a, b) =>
+      Date.parse(b.lastSessionStartedAt) - Date.parse(a.lastSessionStartedAt),
   );
 }
 
@@ -551,9 +580,7 @@ export function listRecentSessions(
   const handle = dashboardDb;
   if (!handle) return [];
   const exclude =
-    excludeSessionIds === undefined
-      ? liveSessionIds()
-      : excludeSessionIds;
+    excludeSessionIds === undefined ? liveSessionIds() : excludeSessionIds;
   try {
     const candidates = listResumeSessionCandidates(handle, exclude);
     if (candidates.length <= RECENT_SESSIONS_DISPLAY_LIMIT) return candidates;
