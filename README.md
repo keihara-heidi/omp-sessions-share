@@ -15,11 +15,11 @@ OMP-only: upstream Pi does not provide `/collab`.
 
 ```bash
 omp plugin install github:keihara-heidi/omp-sessions-share
-bun x github:keihara-heidi/omp-sessions-share setup
+bun x --no-cache github:keihara-heidi/omp-sessions-share setup
 oss start
 ```
 
-The one-time `bun x` command performs initial setup and installs `oss` in `~/.local/bin`; lifecycle commands use `oss` afterward.
+The one-time `bun x` command performs initial setup from the latest commit and installs `oss` in `~/.local/bin`; lifecycle commands use `oss` afterward.
 
 Then start OMP normally. Each interactive session automatically starts native `/collab` and registers with the running dashboard.
 
@@ -105,7 +105,7 @@ The browser receives the collab link encrypted to a non-extractable RSA key gene
 ## Repair setup
 
 ```bash
-bun x github:keihara-heidi/omp-sessions-share setup
+bun x --no-cache github:keihara-heidi/omp-sessions-share setup
 ```
 
 Setup is idempotent, retains existing secrets, and also repairs a missing `oss` launcher.
