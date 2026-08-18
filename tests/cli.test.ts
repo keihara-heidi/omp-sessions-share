@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -7,6 +8,7 @@ import {
   getDaemonLogPath,
   isAccessLogLine,
   parseCliArgs,
+  parseMainCommit,
 } from "../setup/cli";
 import { formatAccessLogLine } from "../daemon/server";
 
@@ -134,6 +136,28 @@ describe("cli parse/dispatch", () => {
     expect(getDaemonLogPath("/Users/example")).toBe(
       "/Users/example/.omp/logs/omp-sessions-share.log",
     );
+  });
+});
+
+describe("data-safe update", () => {
+  test("accepts only the exact main commit response", () => {
+    const sha = "a".repeat(40);
+    expect(parseMainCommit(`${sha}\trefs/heads/main\n`)).toBe(sha);
+    expect(parseMainCommit(`${sha}\trefs/heads/other\n`)).toBeNull();
+    expect(parseMainCommit("not-a-commit\trefs/heads/main\n")).toBeNull();
+  });
+
+  test("reinstalls and runs setup without invoking local cleanup", async () => {
+    const source = await readFile(CLI, "utf8");
+    const update = source.slice(
+      source.indexOf("async function cmdUpdate"),
+      source.indexOf("async function cmdUninstall"),
+    );
+    expect(update).toContain('"git", "ls-remote"');
+    expect(update).toContain('"plugin", "install"');
+    expect(update).toContain("resolveInstalledSetupEntry()");
+    expect(update).not.toContain("uninstallLocalRuntime");
+    expect(update).not.toContain("getDashboardDbPath");
   });
 });
 

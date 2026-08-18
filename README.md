@@ -116,7 +116,7 @@ Setup is idempotent, retains existing secrets, and also repairs a missing `oss` 
 oss update
 ```
 
-Update upgrades the installed plugin and reruns idempotent setup so the copied daemon runtime and launchers match it.
+Update resolves the exact latest commit on `main`, reinstalls the plugin, and reruns idempotent setup so the copied daemon runtime and launchers match it. Existing configuration, secrets, registered workspaces, Recent sessions, and the SQLite database are preserved.
 
 ## Uninstall
 

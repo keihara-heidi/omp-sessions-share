@@ -21,6 +21,15 @@ import {
   uninstallLocalRuntime,
 } from "./install";
 
+const PLUGIN_GITHUB_REPO = "https://github.com/keihara-heidi/omp-sessions-share.git";
+const PLUGIN_GITHUB_SOURCE = "github:keihara-heidi/omp-sessions-share";
+
+export function parseMainCommit(output: string): string | null {
+  return (
+    output.trim().match(/^([0-9a-f]{40})\s+refs\/heads\/main$/)?.[1] ?? null
+  );
+}
+
 export const EXIT_OK = 0;
 export const EXIT_RUNTIME = 1;
 export const EXIT_USAGE = 2;
@@ -71,7 +80,7 @@ Commands:
   register [path]       Register a workspace path (default: cwd)
   credentials           Print dashboard URL and password
   logs [--follow]       Show LaunchAgent daemon log (sanitized access lines)
-  update                Upgrade plugin package, then rerun setup
+  update                Install latest main, then refresh runtime without deleting local data
   uninstall             Remove local runtime state
   help                  Show this help
 
@@ -484,8 +493,19 @@ async function resolveInstalledSetupEntry(): Promise<string> {
 }
 
 async function cmdUpdate(): Promise<void> {
+  const remote = Bun.spawnSync(
+    ["git", "ls-remote", PLUGIN_GITHUB_REPO, "refs/heads/main"],
+    { stdout: "pipe", stderr: "pipe", stdin: "ignore" },
+  );
+  const commit =
+    remote.exitCode === 0 ? parseMainCommit(remote.stdout.toString()) : null;
+  if (!commit) {
+    const detail = remote.stderr.toString().trim();
+    fail(`update failed: could not resolve latest main commit${detail ? `: ${detail}` : ""}`);
+  }
+
   const upgrade = Bun.spawnSync(
-    ["omp", "plugin", "upgrade", "omp-sessions-share"],
+    ["omp", "plugin", "install", `${PLUGIN_GITHUB_SOURCE}#${commit}`, "--force"],
     {
       stdout: "inherit",
       stderr: "inherit",
@@ -494,7 +514,7 @@ async function cmdUpdate(): Promise<void> {
   );
   if (upgrade.exitCode !== 0) {
     fail(
-      `update failed: omp plugin upgrade exited ${upgrade.exitCode ?? "unknown"}`,
+      `update failed: omp plugin install exited ${upgrade.exitCode ?? "unknown"}`,
     );
   }
 
@@ -509,7 +529,9 @@ async function cmdUpdate(): Promise<void> {
       `update failed: installed setup exited ${setup.exitCode ?? "unknown"}`,
     );
   }
-  console.log("omp-sessions-share update complete.");
+  console.log(
+    "omp-sessions-share update complete. Local config and database preserved.",
+  );
 }
 
 async function cmdUninstall(): Promise<void> {
