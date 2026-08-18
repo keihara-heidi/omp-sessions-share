@@ -8,6 +8,7 @@ import {
   WorkspaceSkeletons,
 } from "@/app/components/workspace-feedback";
 import { WorkspaceGroups } from "@/app/components/workspace-groups";
+import JoinSession from "@/app/components/join-session";
 import { useDashboardData } from "@/app/components/use-sessions";
 import { FailAlert, WarnAlert } from "@/components/ds/feedback";
 import { Page, PageSearch } from "@/components/ds/page";
@@ -16,6 +17,7 @@ const EMPTY_GROUPS: SessionGroup[] = [];
 
 export default function WorkspacesPage() {
   const [query, setQuery] = useState("");
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const { data, failed, isPending, loaded, offline, retry, unauthorized } =
     useDashboardData();
   const groups = useMemo(
@@ -66,8 +68,20 @@ export default function WorkspacesPage() {
         ) : groups.length === 0 ? (
           <NoWorkspaceResults query={query} onClear={() => setQuery("")} />
         ) : (
-          <WorkspaceGroups groups={groups} query={query} />
+          <WorkspaceGroups
+            groups={groups}
+            query={query}
+            openingId={selectedSessionId}
+            onSelect={setSelectedSessionId}
+          />
         )
+      ) : null}
+
+      {selectedSessionId ? (
+        <JoinSession
+          sessionId={selectedSessionId}
+          onDone={() => setSelectedSessionId(null)}
+        />
       ) : null}
     </Page>
   );

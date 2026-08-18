@@ -60,11 +60,11 @@ Sessions (/)
 Workspaces (/workspaces/)
 └── Folder / Repository
     └── Worktree
-        ├── Live / Recent counts and compact session titles
+        ├── Live / Recent counts and compact session titles (tap Live to join)
         └── PR status and workspace actions
 ```
 
-Each page has typo-tolerant search using the same grouping rules. Sessions searches conversation titles and directories plus repository, worktree, and branch context. Workspaces searches repository, worktree, branch, path, and the compact session titles shown within expanded worktrees. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
+Each page has typo-tolerant search using the same grouping rules. Sessions searches conversation titles and directories plus repository, worktree, and branch context. Workspaces searches repository, worktree, branch, path, and the compact session titles shown within expanded worktrees; Live rows are direct join shortcuts. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
 
 Dashboard session and location changes arrive as complete snapshots through one authenticated live event stream; no polling or phone reload is needed. EventSource reconnects automatically and receives a fresh snapshot.
 

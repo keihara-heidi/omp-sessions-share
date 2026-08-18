@@ -33,10 +33,14 @@ function WorktreeSection({
   group,
   worktree,
   expanded,
+  openingId,
+  onSelect,
 }: {
   group: SessionGroup;
   worktree: WorktreeGroup;
   expanded: boolean;
+  openingId: string | null;
+  onSelect: (sessionId: string) => void;
 }) {
   const deletable = group.kind === "repository" && worktree.path !== group.path;
   return (
@@ -61,7 +65,11 @@ function WorktreeSection({
         worktree={worktree}
         enabled={expanded && group.kind === "repository" && Boolean(worktree.branch)}
       />
-      <WorkspaceSessions worktree={worktree} />
+      <WorkspaceSessions
+        worktree={worktree}
+        openingId={openingId}
+        onSelect={onSelect}
+      />
     </WorktreeBlock>
   );
 }
@@ -94,9 +102,13 @@ function CreateWorktreeButton({
 function WorkspaceGroup({
   group,
   searching,
+  openingId,
+  onSelect,
 }: {
   group: SessionGroup;
   searching: boolean;
+  openingId: string | null;
+  onSelect: (sessionId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const expanded = searching || open;
@@ -145,6 +157,8 @@ function WorkspaceGroup({
               group={group}
               worktree={worktree}
               expanded={expanded}
+              openingId={openingId}
+              onSelect={onSelect}
             />
           ))}
         </GroupBody>
@@ -157,15 +171,25 @@ function WorkspaceGroup({
 export function WorkspaceGroups({
   groups,
   query,
+  openingId,
+  onSelect,
 }: {
   groups: SessionGroup[];
   query: string;
+  openingId: string | null;
+  onSelect: (sessionId: string) => void;
 }) {
   const searching = query.trim().length > 0;
   return (
     <GroupStack>
       {groups.map((group) => (
-        <WorkspaceGroup key={group.path} group={group} searching={searching} />
+        <WorkspaceGroup
+          key={group.path}
+          group={group}
+          searching={searching}
+          openingId={openingId}
+          onSelect={onSelect}
+        />
       ))}
     </GroupStack>
   );
