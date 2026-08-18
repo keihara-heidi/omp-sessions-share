@@ -15,14 +15,11 @@ OMP-only: upstream Pi does not provide `/collab`.
 
 ```bash
 omp plugin install github:keihara-heidi/omp-sessions-share
-```
-
-Set up and start the dashboard from the terminal:
-
-```bash
-oss setup
+bun ~/.omp/plugins/node_modules/omp-sessions-share/setup/cli.ts setup
 oss start
 ```
+
+The one-time `bun` command installs `oss` in `~/.local/bin`; subsequent setup, repair, and lifecycle commands use `oss` directly.
 
 Then start OMP normally. Each interactive session automatically starts native `/collab` and registers with the running dashboard.
 
@@ -33,7 +30,7 @@ Setup creates:
 - one Tailscale Serve endpoint on HTTPS port `8443`
 - one private config at `~/.omp/agent/omp-sessions-share.json` with mode `0600`
 - one private dashboard SQLite database at `~/.omp/agent/omp-sessions-share.sqlite` with mode `0600` and WAL (`-wal` / `-shm` sidecars also `0600`)
-- PATH-first source-compatible launchers at `~/.local/bin/omp` and `~/.local/bin/omp-share`
+- PATH-first launchers at `~/.local/bin/oss`, `~/.local/bin/omp`, and `~/.local/bin/omp-share`
 
 If `~/.omp/agent/omp-sessions-share-locations.json` already exists, it is imported once into SQLite and left on disk unchanged so you can roll back.
 
@@ -104,27 +101,6 @@ System health is fetched independently and cached briefly by the daemon. **Refre
 Workspace groups start collapsed. Launching is limited to worktrees advertised by the dashboard’s remembered locations.
 
 The browser receives the collab link encrypted to a non-extractable RSA key generated on that device. The relay sees only OMP's existing end-to-end encrypted collab frames.
-
-## Development conventions
-
-- Fetch root server state once at the feature boundary and pass cohesive view models to rendering components. Do not add per-row queries for entities already present in the dashboard snapshot.
-- Use query hooks for independently fetched and cached server state. Use variable-driven mutation hooks for operations; pass IDs or paths to the mutation instead of binding an entity when the hook is created.
-- All dashboard count and status badges use `components/ds/badge.tsx`. Choose a semantic `variant` and an explicit `size`; do not rebuild badge geometry or colors at callsites.
-- Consumers destructure and domain-alias only the mutation fields they use:
-
-```ts
-const { mutate: resumeSession, isPending: isResuming } =
-  useResumeRecentSession();
-
-resumeSession(recent.id);
-```
-
-- Extract `mutateAsync` instead when local work must await the operation. Do not extract both `mutate` and `mutateAsync` unless the component genuinely uses both.
-- Prefer names such as `resumeSession`, `deleteWorktree`, and `isDeletingWorktree` over generic `mutation.mutate()` / `mutation.isPending` expressions.
-
-## Release policy
-
-Every commit to `main` must bump the `package.json` version using semantic versioning.
 
 ## Repair setup
 

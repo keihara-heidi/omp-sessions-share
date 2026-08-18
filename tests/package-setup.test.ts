@@ -474,6 +474,10 @@ describe("packaged path resolution fixtures", () => {
     expect(installSrc).toMatch(/src", "cli\.ts"/);
     expect(installSrc).toMatch(/\.local", "bin"/);
     expect(installSrc).toMatch(/omp-share/);
+    expect(installSrc).toMatch(/path\.join\(userBinDir,\s*"oss"\)/);
+    expect(installSrc).toMatch(
+      /removeOwnedLauncher\(path\.join\(home,\s*"\.local",\s*"bin",\s*"oss"\)\)/,
+    );
   });
 
   test("getShareConfigPath honors temp agent dir without touching ~/.omp", async () => {

@@ -219,7 +219,7 @@ function printSetupResult(config: ShareConfig): void {
   console.log(`Local origin:        ${config.localOrigin}`);
   console.log(`Config:              ~/.omp/agent/omp-sessions-share.json`);
   console.log(`Dashboard password:  ${config.dashboardPassword}`);
-  console.log("Installed launchers: ~/.local/bin/omp and ~/.local/bin/omp-share");
+  console.log("Installed launchers: ~/.local/bin/oss, ~/.local/bin/omp, and ~/.local/bin/omp-share");
   console.log(
     "Restart any already-open terminal or OMP session once so PATH picks up ~/.local/bin/omp.",
   );

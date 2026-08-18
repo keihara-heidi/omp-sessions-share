@@ -598,8 +598,11 @@ async function installLauncherAndAlias(): Promise<void> {
   const userBinDir = path.join(home, ".local", "bin");
   await mkdir(userBinDir, { recursive: true });
 
+  const ossPath = path.join(userBinDir, "oss");
   const sharePath = path.join(userBinDir, "omp-share");
   const ompPath = path.join(userBinDir, "omp");
+
+  await writeOwnedLauncher(ossPath, path.join(PACKAGE_ROOT, "setup", "cli.ts"));
 
   // omp-share is always ours; rewrite freely.
   await writeOwnedLauncher(sharePath, sourceCli);
@@ -754,6 +757,7 @@ export async function uninstallLocalRuntime(): Promise<void> {
     },
   );
   await removeOwnedLauncher(path.join(home, ".local", "bin", "omp-share"));
+  await removeOwnedLauncher(path.join(home, ".local", "bin", "oss"));
   await removeOwnedLauncher(path.join(home, ".local", "bin", "omp"));
   await removeLegacyExtensionCopy();
   await removeLauncherAlias(home);
