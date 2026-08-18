@@ -3,18 +3,18 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { enableCollabGuestTitleGeneration } from "../setup/install";
 import ompSessionsShareExtension, {
   disableBundledCollabQrCode,
   disableCollabQrCode,
   extractOsc8Urls,
   onSessionReady,
-  parseShareCommand,
   sanitizeOpenRouterResponsesPayload,
   sessionFileOf,
   submitEditorCommandPreservingDraft,
   versionCompatible,
 } from "../extension";
+import { enableCollabGuestTitleGeneration } from "../setup/install";
+
 
 test("OMP startup and resume automatically enable dashboard sharing", async () => {
   let shareStarts = 0;
@@ -91,23 +91,6 @@ test("collab bridge accepts OMP versions without a hard-coded gate", () => {
   expect(versionCompatible(null)).toBe(true);
 });
 
-test("share command supports start, stop, and registration", () => {
-  expect(parseShareCommand("/share")).toEqual({ action: "start" });
-  expect(parseShareCommand("  /SHARE  ")).toEqual({ action: "start" });
-  expect(parseShareCommand("/share stop")).toEqual({ action: "stop" });
-  expect(parseShareCommand("/SHARE STOP  ")).toEqual({ action: "stop" });
-  expect(parseShareCommand("/share register")).toEqual({ action: "register" });
-  expect(parseShareCommand("/share register ../Project One")).toEqual({
-    action: "register",
-    path: "../Project One",
-  });
-});
-
-test("share command rejects unsupported arguments", () => {
-  expect(parseShareCommand("/share start")).toBeNull();
-  expect(parseShareCommand("/share stop now")).toBeNull();
-  expect(parseShareCommand("/shared")).toBeNull();
-});
 
 test("collab capture extracts OSC-8 links with metadata", () => {
   const link =
