@@ -1,14 +1,18 @@
 import type { WorktreeGroup } from "@/app/components/group-sessions";
-import { TypographyCount } from "@/components/ui/typography";
+import { Badge } from "@/components/ds/badge";
 
 export function WorkspaceCounts({ worktree }: { worktree: WorktreeGroup }) {
   return (
     <span className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-      <span className="inline-flex h-7 w-full items-center justify-center rounded-md border border-ok/30 bg-ok/10 px-2 text-ok sm:w-20">
-        <TypographyCount>{worktree.sessions.length} Live</TypographyCount>
+      <span className="sm:w-20">
+        <Badge variant="success" size="md" stretch>
+          {worktree.sessions.length} Live
+        </Badge>
       </span>
-      <span className="inline-flex h-7 w-full items-center justify-center rounded-md border border-border bg-card px-2 sm:w-20">
-        <TypographyCount>{worktree.recentSessions.length} Recent</TypographyCount>
+      <span className="sm:w-20">
+        <Badge variant="neutral" size="md" stretch>
+          {worktree.recentSessions.length} Recent
+        </Badge>
       </span>
     </span>
   );
@@ -34,8 +38,8 @@ export function WorkspaceSessions({ worktree }: { worktree: WorktreeGroup }) {
             >
               {session.title}
             </span>
-            <span className="w-12 shrink-0 text-right">
-              <TypographyCount>Live</TypographyCount>
+            <span className="w-14 shrink-0">
+              <Badge variant="success" size="xs" stretch>Live</Badge>
             </span>
           </li>
         ))}
@@ -48,8 +52,8 @@ export function WorkspaceSessions({ worktree }: { worktree: WorktreeGroup }) {
             >
               {session.title}
             </span>
-            <span className="w-12 shrink-0 text-right">
-              <TypographyCount>Recent</TypographyCount>
+            <span className="w-14 shrink-0">
+              <Badge variant="neutral" size="xs" stretch>Recent</Badge>
             </span>
           </li>
         ))}

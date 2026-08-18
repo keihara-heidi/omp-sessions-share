@@ -19,33 +19,27 @@ import type {
   WorktreePullRequestStatus,
 } from "@/lib/contracts";
 import { BusyIcon, TouchButton } from "@/components/ds/session";
+import { Badge, type BadgeVariant } from "@/components/ds/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type PullRequestInfo = NonNullable<WorktreePullRequestStatus["pullRequest"]>;
 
-type Tone = "merge" | "warn" | "destructive" | "dim" | "link";
-
-const TONE_CLASS: Record<Tone, string> = {
-  merge: "border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-  warn: "border-warn/40 bg-warn/10 text-warn",
-  destructive: "border-destructive/40 bg-destructive/10 text-destructive",
-  dim: "border-border bg-secondary text-muted-foreground",
-  link: "border-link/40 bg-link/10 text-link",
+type ReadinessMeta = {
+  label: string;
+  variant: BadgeVariant;
+  icon: typeof CircleCheck;
 };
 
-const READINESS: Record<
-  PullRequestReadiness,
-  { label: string; tone: Tone; icon: typeof CircleCheck }
-> = {
-  ready: { label: "Ready to merge", tone: "merge", icon: CircleCheck },
-  merged: { label: "Merged", tone: "merge", icon: GitMerge },
-  draft: { label: "Draft", tone: "dim", icon: CircleDashed },
-  checks_failed: { label: "Checks failed", tone: "destructive", icon: CircleX },
-  checks_pending: { label: "Checks running", tone: "warn", icon: Clock },
-  changes_requested: { label: "Changes requested", tone: "warn", icon: Eye },
-  review_required: { label: "Review required", tone: "link", icon: Eye },
-  conflicts: { label: "Conflicts", tone: "destructive", icon: GitMerge },
-  unknown: { label: "Status unknown", tone: "dim", icon: CircleHelp },
+const READINESS: Record<PullRequestReadiness, ReadinessMeta> = {
+  ready: { label: "Ready to merge", variant: "merge", icon: CircleCheck },
+  merged: { label: "Merged", variant: "merge", icon: GitMerge },
+  draft: { label: "Draft", variant: "neutral", icon: CircleDashed },
+  checks_failed: { label: "Checks failed", variant: "destructive", icon: CircleX },
+  checks_pending: { label: "Checks running", variant: "warning", icon: Clock },
+  changes_requested: { label: "Changes requested", variant: "warning", icon: Eye },
+  review_required: { label: "Review required", variant: "info", icon: Eye },
+  conflicts: { label: "Conflicts", variant: "destructive", icon: GitMerge },
+  unknown: { label: "Status unknown", variant: "neutral", icon: CircleHelp },
 };
 
 const ACTION_META: Record<
@@ -156,12 +150,10 @@ export function PrStatusPanel({
           <span className="shrink-0">#{pullRequest.number}</span>
           <span className="min-w-0 truncate">{pullRequest.title}</span>
         </a>
-        <span
-          className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium ${TONE_CLASS[readiness.tone]}`}
-        >
-          <ReadinessIcon aria-hidden className="size-3" />
+        <Badge variant={readiness.variant} size="sm">
+          <ReadinessIcon aria-hidden />
           {readiness.label}
-        </span>
+        </Badge>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <PrFact icon={<GitMerge />}>

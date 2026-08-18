@@ -2,8 +2,8 @@
 
 import { SessionCard } from "@/components/ds/session-card";
 import { SessionItems } from "@/components/ds/session";
+import { Badge } from "@/components/ds/badge";
 import {
-  TypographyCount,
   TypographyH2,
   TypographyMuted,
 } from "@/components/ui/typography";
@@ -116,9 +116,7 @@ function SectionHeading({
   return (
     <div className="mb-2 flex items-center justify-between gap-3">
       <TypographyH2 id={id}>{title}</TypographyH2>
-      <span className="rounded-md border border-border bg-secondary px-1.5 py-0.5">
-        <TypographyCount>{count}</TypographyCount>
-      </span>
+      <Badge variant="neutral" size="xs">{count}</Badge>
     </div>
   );
 }

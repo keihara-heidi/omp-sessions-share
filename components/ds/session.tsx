@@ -2,9 +2,9 @@
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import { ChevronRight, GitBranch, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ds/badge";
 import {
   TypographyBranch,
-  TypographyCount,
   TypographyH2,
   TypographyH3,
   TypographyPath,
@@ -65,9 +65,9 @@ export function GroupTitleRow({
       <span className="flex w-full min-w-0 items-center gap-2 overflow-hidden">
         <span className="size-4 shrink-0 text-dim [&_svg]:size-4">{icon}</span>
         <span className="min-w-0 flex-1 truncate" title={name}>{name}</span>
-        <span className="inline-flex shrink-0 items-center rounded-md border border-border bg-secondary px-1.5 py-0.5">
-          <TypographyCount aria-label={summaryLabel}>{summary}</TypographyCount>
-        </span>
+        <Badge variant="neutral" size="xs" aria-label={summaryLabel}>
+          {summary}
+        </Badge>
       </span>
     </TypographyH2>
   );
