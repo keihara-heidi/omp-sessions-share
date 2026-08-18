@@ -519,11 +519,6 @@ function sessionTitleOf(ctx: ExtensionContext): string {
 	return ctx.sessionManager.getSessionName()?.trim() || "untitled";
 }
 
-/** Prefer Shared Context worktree path when present; fall back to session cwd. */
-function sessionCwdOf(ctx: ExtensionContext): string {
-	const worktree = process.env.SUPERCONDUCTOR_WORKTREE_PATH?.trim();
-	return worktree || ctx.cwd;
-}
 
 /** Exact session jsonl from OMP when present; never derived from cwd or logged. */
 export function sessionFileOf(ctx: ExtensionContext): string | undefined {
@@ -575,7 +570,7 @@ function ensureRuntime(ctx: ExtensionContext): SessionRuntime {
 	const sessionFile = sessionFileOf(ctx);
 	if (runtime && runtime.sessionId === sessionId) {
 		runtime.ctx = ctx;
-		runtime.cwd = sessionCwdOf(ctx);
+		runtime.cwd = ctx.cwd;
 		runtime.title = sessionTitleOf(ctx);
 		if (sessionFile !== undefined) runtime.sessionFile = sessionFile;
 		else delete runtime.sessionFile;
@@ -585,7 +580,7 @@ function ensureRuntime(ctx: ExtensionContext): SessionRuntime {
 	runtime = {
 		sessionId,
 		startedAt: new Date().toISOString(),
-		cwd: sessionCwdOf(ctx),
+		cwd: ctx.cwd,
 		title: sessionTitleOf(ctx),
 		...(sessionFile !== undefined ? { sessionFile } : {}),
 		ctx,
@@ -616,7 +611,7 @@ async function pollOnce(rt: SessionRuntime): Promise<void> {
 	rt.polling = true;
 	try {
 		rt.title = sessionTitleOf(rt.ctx);
-		rt.cwd = sessionCwdOf(rt.ctx);
+		rt.cwd = rt.ctx.cwd;
 		const sessionFile = sessionFileOf(rt.ctx);
 		if (sessionFile !== undefined) rt.sessionFile = sessionFile;
 		else delete rt.sessionFile;
@@ -926,7 +921,7 @@ async function registerShareLocation(
 	ctx: ExtensionContext,
 	requestedPath?: string,
 ): Promise<void> {
-	const registrationPath = path.resolve(sessionCwdOf(ctx), requestedPath || ".");
+	const registrationPath = path.resolve(ctx.cwd, requestedPath || ".");
 	const result = await hostApi<{
 		locations: Array<{ group: { path: string } }>;
 	}>("/api/host/locations", {
