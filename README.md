@@ -37,10 +37,10 @@ No Vercel, Redis, cloud database, or central service.
 1. Run or resume `omp`. Native `/collab` starts automatically and the session registers with the dashboard.
 2. Run `/share` to reprint the dashboard URL and password or restart sharing. Run `/share stop` to stop dashboard sharing without terminating OMP or its collab session. Run `/collab` to display the active live-session link.
 3. On a tailnet-connected phone, open the URL and enter the password.
-4. Select a live session.
-5. To start another session, expand a folder or repository and tap **Start** beside a worktree. The Mac opens a Terminal running OMP in that worktree. On a repository group, tap **New worktree** to create a sibling linked worktree with `git worktree` and start OMP there.
-6. Tap the remove button on a session to hide it and SIGTERM that session's OMP process. The IDE or terminal app is not closed. If another live dashboard session shares the same process, only the dashboard row is removed.
-7. After a Live row expires (15 seconds without a heartbeat) or is removed, it appears under **Recent** on its original worktree. Tap **Resume** to reopen that exact prior session in the same worktree. Native `/collab` starts automatically after the resumed session heartbeats. The browser never receives the host session JSONL path.
+4. Open **Sessions** to join a Live session, remove a stale Live row, or resume an exact prior conversation from Recent.
+5. Open **Workspaces** to start a blank session in an advertised worktree. Repository groups can create a sibling linked worktree with `git worktree` and start OMP there; linked worktrees also expose delete, pull-request repair, and ready-to-merge actions.
+6. Removing a Live session hides it and SIGTERMs that session's OMP process. The IDE or terminal app is not closed. If another live dashboard session shares the same process, only the dashboard row is removed.
+7. After a Live row expires (15 seconds without a heartbeat) or is removed, it appears under **Recent** on Sessions. Tap **Resume** to reopen that exact prior session in the same worktree. Native `/collab` starts automatically after the resumed session heartbeats. The browser never receives the host session JSONL path.
 
 Register a repository or directory before it has a live session:
 
@@ -50,20 +50,25 @@ Register a repository or directory before it has a live session:
 
 The path defaults to the current session directory. A project folder containing multiple Git repositories registers each repository; a plain folder with no repositories registers as one folder.
 
-Dashboard hierarchy:
+The dashboard has two focused pages:
 
 ```text
-Folder / Repository
-└── Worktree
-    ├── Live
-    └── Recent
+Sessions (/)
+├── Live
+└── Recent
+
+Workspaces (/workspaces/)
+└── Folder / Repository
+    └── Worktree
+        ├── Live / Recent counts
+        └── PR status and workspace actions
 ```
 
-Search is typo-tolerant and lets separate query terms match across repository names and paths, worktree or branch-like names, session titles, and session directories. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
+Each page has typo-tolerant search using the same grouping rules. Sessions searches conversation titles and directories plus repository, worktree, and branch context. Workspaces searches repository, worktree, branch, and path fields without rendering full session cards. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
 
-Dashboard session and location changes arrive as complete snapshots through an authenticated live event stream; no polling or phone reload needed. EventSource reconnects automatically and receives a fresh snapshot.
+Dashboard session and location changes arrive as complete snapshots through one authenticated live event stream; no polling or phone reload is needed. EventSource reconnects automatically and receives a fresh snapshot.
 
-Groups start collapsed. Launching is limited to worktrees advertised by a current live session.
+Workspace groups start collapsed. Launching is limited to worktrees advertised by the dashboard’s remembered locations.
 
 The browser receives the collab link encrypted to a non-extractable RSA key generated on that device. The relay sees only OMP's existing end-to-end encrypted collab frames.
 

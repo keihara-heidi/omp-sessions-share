@@ -17,7 +17,7 @@ type NoClass<T extends keyof HTMLElementTagNameMap> = Omit<
 export function Page(props: NoClass<"main">) {
   return (
     <main
-      className="mx-auto w-full max-w-4xl px-4 pb-16 pt-5 sm:px-6 sm:pt-8"
+      className="mx-auto w-full max-w-4xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-0 sm:px-6 sm:pb-16"
       {...props}
     />
   );
@@ -53,9 +53,13 @@ export function PageTitle({
 export function PageSearch({
   value,
   onChange,
+  placeholder,
+  ariaLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
+  placeholder: string;
+  ariaLabel: string;
 }) {
   return (
     <InputGroup className="mb-5 h-11 bg-card sm:h-9">
@@ -64,8 +68,8 @@ export function PageSearch({
       </InputGroupAddon>
       <InputGroupInput
         type="search"
-        placeholder="Search repos, branches, worktrees, sessions…"
-        aria-label="Search sessions"
+        placeholder={placeholder}
+        aria-label={ariaLabel}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />

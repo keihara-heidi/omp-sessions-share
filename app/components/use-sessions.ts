@@ -7,7 +7,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import type {
   PullRequestAction,
@@ -15,9 +15,8 @@ import type {
   WorktreePullRequestStatus,
 } from "@/lib/contracts";
 import { api, ApiError, postJson } from "./api";
-import { groupSessions } from "./group-sessions";
 
-const DASHBOARD_QUERY_KEY = ["sessions"] as const;
+export const DASHBOARD_QUERY_KEY = ["sessions"] as const;
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -32,18 +31,35 @@ function updateDashboard(
   );
 }
 
-export function useSessionDashboard() {
+export function useDashboardData() {
   const router = useRouter();
-  const queryClient = useQueryClient();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-
   const dashboard = useQuery({
     queryKey: DASHBOARD_QUERY_KEY,
     queryFn: () => api<SessionDashboard>("/api/dashboard"),
     refetchOnWindowFocus: true,
     retry: false,
   });
+  const unauthorized =
+    dashboard.error instanceof ApiError && dashboard.error.status === 401;
+
+  useEffect(() => {
+    if (unauthorized) router.replace("/login");
+  }, [router, unauthorized]);
+
+  return {
+    data: dashboard.data,
+    unauthorized,
+    loaded: dashboard.data !== undefined,
+    isPending: dashboard.isPending,
+    offline: dashboard.isError && dashboard.data !== undefined,
+    failed: dashboard.isError && dashboard.data === undefined,
+    retry: () => void dashboard.refetch(),
+  };
+}
+
+/** One authenticated dashboard stream, mounted by the persistent route shell. */
+export function useDashboardEvents() {
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const events = new EventSource("/api/events");
@@ -57,51 +73,14 @@ export function useSessionDashboard() {
       events.close();
     };
   }, [queryClient]);
+}
 
-  const logout = useMutation({
+export function useLogout() {
+  const router = useRouter();
+  return useMutation({
     mutationFn: () => api<{ ok: true }>("/api/auth/logout", { method: "POST" }),
     onSettled: () => router.replace("/login"),
   });
-
-  const groups = useMemo(
-    () =>
-      groupSessions(
-        dashboard.data?.sessions ?? [],
-        query,
-        dashboard.data?.locations ?? [],
-        dashboard.data?.recentSessions ?? [],
-      ),
-    [dashboard.data, query],
-  );
-  const unauthorized =
-    dashboard.error instanceof ApiError && dashboard.error.status === 401;
-
-  useEffect(() => {
-    if (unauthorized) router.replace("/login");
-  }, [router, unauthorized]);
-
-  return {
-    groups,
-    query,
-    selectedSessionId,
-    now: Date.now(),
-    unauthorized,
-    loaded: dashboard.data !== undefined,
-    isPending: dashboard.isPending,
-    offline: dashboard.isError && dashboard.data !== undefined,
-    failed: dashboard.isError && dashboard.data === undefined,
-    hasLocations:
-      dashboard.data !== undefined &&
-      (dashboard.data.locations.length > 0 ||
-        dashboard.data.recentSessions.length > 0),
-    isLoggingOut: logout.isPending,
-    setQuery,
-    clearQuery: () => setQuery(""),
-    selectSession: setSelectedSessionId,
-    clearSelected: () => setSelectedSessionId(null),
-    retry: () => void dashboard.refetch(),
-    logOut: () => logout.mutate(),
-  };
 }
 
 export function useLaunchSession() {

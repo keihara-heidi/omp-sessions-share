@@ -1,5 +1,5 @@
 /** Session card chrome. Type and spacing live here — callers pass no className. */
-import { CircleMinus, FolderCode, GitBranch, LoaderCircle } from "lucide-react";
+import { CircleMinus, FolderCode, GitBranch, LoaderCircle, Milestone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   TypographyBranch,
@@ -19,6 +19,7 @@ export function SessionCard({
   actionLabel = "Join",
   busyLabel = "Opening…",
   title,
+  context,
   path,
   branch,
   meta,
@@ -36,6 +37,7 @@ export function SessionCard({
   actionLabel?: string;
   busyLabel?: string;
   title: string;
+  context: string;
   path: string;
   branch?: string;
   meta: string;
@@ -55,7 +57,10 @@ export function SessionCard({
             data-presence={presence}
             className="size-2 shrink-0 rounded-full bg-ok ring-[3px] ring-ok/25 data-[presence=stale]:bg-dim data-[presence=stale]:ring-0 data-[presence=recent]:border data-[presence=recent]:border-dim data-[presence=recent]:bg-transparent data-[presence=recent]:ring-0"
           />
-          <span className="min-w-0 flex-1 overflow-hidden [&_h4]:block [&_h4]:truncate">
+          <span
+            className="min-w-0 flex-1 overflow-hidden [&_h4]:block [&_h4]:truncate"
+            title={title}
+          >
             <TypographyH4>{title}</TypographyH4>
           </span>
           <span className="shrink-0 text-xs font-medium text-primary">
@@ -63,15 +68,21 @@ export function SessionCard({
           </span>
         </span>
         <span className="flex w-full min-w-0 items-center gap-1.5">
+          <Milestone aria-hidden className="size-3.5 shrink-0 text-dim" />
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={context}>
+            {context}
+          </span>
+        </span>
+        <span className="flex w-full min-w-0 items-center gap-1.5">
           <FolderCode aria-hidden className="size-3.5 shrink-0 text-dim" />
-          <span className="min-w-0 truncate" dir="rtl">
+          <span className="min-w-0 truncate" dir="rtl" title={path}>
             <bdi>
               <TypographyPath>{path}</TypographyPath>
             </bdi>
           </span>
         </span>
         {branch ? (
-          <span className="flex w-full min-w-0 items-center gap-1.5">
+          <span className="flex w-full min-w-0 items-center gap-1.5" title={branch}>
             <GitBranch aria-hidden className="size-3.5 shrink-0 text-link" />
             <TypographyBranch>{branch}</TypographyBranch>
           </span>

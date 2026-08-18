@@ -1,5 +1,5 @@
 /** Session/group chrome. Type and spacing live here — callers pass no className. */
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import { ChevronRight, GitBranch, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,9 +14,15 @@ export function GroupStack({ children }: { children: ReactNode }) {
   return <div className="flex flex-col gap-3">{children}</div>;
 }
 
-export function GroupDisclosure({ children }: { children: ReactNode }) {
+export function GroupDisclosure({
+  children,
+  ...props
+}: Omit<ComponentProps<"details">, "className">) {
   return (
-    <details className="group/repo overflow-hidden rounded-lg border border-border bg-card text-card-foreground">
+    <details
+      className="group/repo overflow-hidden rounded-lg border border-border bg-card text-card-foreground"
+      {...props}
+    >
       {children}
     </details>
   );
@@ -46,21 +52,21 @@ export function GroupSummaryText({ children }: { children: ReactNode }) {
 export function GroupTitleRow({
   icon,
   name,
-  count,
+  summary,
+  summaryLabel,
 }: {
   icon: ReactNode;
   name: string;
-  count: number;
+  summary: string;
+  summaryLabel?: string;
 }) {
   return (
     <TypographyH2>
       <span className="flex w-full min-w-0 items-center gap-2 overflow-hidden">
         <span className="size-4 shrink-0 text-dim [&_svg]:size-4">{icon}</span>
-        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <span className="min-w-0 flex-1 truncate" title={name}>{name}</span>
         <span className="inline-flex shrink-0 items-center rounded-md border border-border bg-secondary px-1.5 py-0.5">
-          <TypographyCount>
-            {count} {count === 1 ? "session" : "sessions"}
-          </TypographyCount>
+          <TypographyCount aria-label={summaryLabel}>{summary}</TypographyCount>
         </span>
       </span>
     </TypographyH2>
@@ -131,7 +137,7 @@ export function WorktreeHeading({
 
 export function SessionItems({ children }: { children: ReactNode }) {
   return (
-    <ul className="m-0 flex list-none flex-col gap-2 p-2 sm:p-2.5">
+    <ul className="m-0 flex list-none flex-col gap-2 p-0">
       {children}
     </ul>
   );

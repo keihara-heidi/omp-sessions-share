@@ -1,0 +1,108 @@
+"use client";
+
+import Link from "next/link";
+import { FolderGit2, LogOut, MessagesSquare, type LucideIcon } from "lucide-react";
+import { usePathname } from "next/navigation";
+import type { ReactNode } from "react";
+import { useDashboardEvents, useLogout } from "@/app/components/use-sessions";
+import { PageHeader, PageTitle } from "@/components/ds/page";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+const DESTINATIONS: Array<{
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}> = [
+  { href: "/", label: "Sessions", icon: MessagesSquare },
+  { href: "/workspaces/", label: "Workspaces", icon: FolderGit2 },
+];
+
+function DashboardLink({
+  href,
+  label,
+  icon: Icon,
+  active,
+  mobile = false,
+}: {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  active: boolean;
+  mobile?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+        active && "bg-secondary text-foreground",
+        mobile && "min-w-0 flex-1 flex-col gap-0.5 px-2 py-1 text-xs",
+      )}
+    >
+      <Icon aria-hidden className="size-4" />
+      {label}
+    </Link>
+  );
+}
+
+export function DashboardShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const { mutate: logOut, isPending: isLoggingOut } = useLogout();
+  useDashboardEvents();
+
+  const workspacesActive = pathname.startsWith("/workspaces");
+  const title = workspacesActive ? "OMP Workspaces" : "OMP Sessions";
+
+  return (
+    <>
+      <div className="mx-auto w-full max-w-4xl px-4 pt-5 sm:px-6 sm:pt-8">
+        <PageHeader>
+          <PageTitle kicker="on this Mac">{title}</PageTitle>
+          <nav aria-label="Dashboard" className="ml-auto hidden items-center gap-1 sm:flex">
+            {DESTINATIONS.map((destination) => (
+              <DashboardLink
+                key={destination.href}
+                {...destination}
+                active={
+                  destination.href === "/"
+                    ? !workspacesActive
+                    : workspacesActive
+                }
+              />
+            ))}
+          </nav>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => logOut()}
+            disabled={isLoggingOut}
+            aria-label="Log out"
+          >
+            <LogOut aria-hidden />
+            <span className="hidden md:inline">Log out</span>
+          </Button>
+        </PageHeader>
+      </div>
+
+      {children}
+
+      <nav
+        aria-label="Dashboard"
+        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-card/95 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur sm:hidden"
+      >
+        {DESTINATIONS.map((destination) => (
+          <DashboardLink
+            key={destination.href}
+            {...destination}
+            active={
+              destination.href === "/" ? !workspacesActive : workspacesActive
+            }
+            mobile
+          />
+        ))}
+      </nav>
+    </>
+  );
+}
