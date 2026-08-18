@@ -33,13 +33,12 @@ const UNRESOLVED_THREADS_QUERY = [
   "}}}",
 ].join("");
 
-export type PullRequestChecks = WorktreePullRequestStatus["pullRequest"] extends
-  | null
-  | infer P
-  ? P extends { checks: infer C }
-    ? C
-    : never
-  : never;
+export type PullRequestChecks =
+  WorktreePullRequestStatus["pullRequest"] extends null | infer P
+    ? P extends { checks: infer C }
+      ? C
+      : never
+    : never;
 
 export type ParsedPullRequest = NonNullable<
   WorktreePullRequestStatus["pullRequest"]
@@ -80,20 +79,18 @@ const failedCheckNamesByPath = new Map<string, string[]>();
 export function resolveGhBin(): string | null {
   const home = process.env.HOME?.trim() || homedir();
   const candidates = [
-    "gh",
+    Bun.which("gh"),
     join(home, "bin", "gh"),
     "/opt/homebrew/bin/gh",
     "/usr/local/bin/gh",
   ];
   for (const bin of candidates) {
+    if (!bin) continue;
     try {
-      const probe = Bun.spawnSync([bin, "--version"], {
-        stdout: "ignore",
-        stderr: "ignore",
-      });
-      if (probe.exitCode === 0) return bin;
+      accessSync(bin, constants.X_OK);
+      return bin;
     } catch {
-      // missing binary or not executable
+      // missing or not executable
     }
   }
   return null;
@@ -264,11 +261,7 @@ export function computePullRequestReadiness(input: {
   isDraft: boolean;
   isMerged: boolean;
   mergeable: "mergeable" | "conflicting" | "unknown";
-  reviewDecision:
-    | "approved"
-    | "changes_requested"
-    | "review_required"
-    | "none";
+  reviewDecision: "approved" | "changes_requested" | "review_required" | "none";
   checks: PullRequestChecks;
   unresolvedThreads: number;
 }): PullRequestReadiness {
@@ -290,7 +283,10 @@ export function parsePullRequestRepo(
 ): { owner: string; name: string; number: number } | null {
   try {
     const parsed = new URL(url);
-    if (parsed.hostname !== "github.com" && parsed.hostname !== "www.github.com") {
+    if (
+      parsed.hostname !== "github.com" &&
+      parsed.hostname !== "www.github.com"
+    ) {
       return null;
     }
     const parts = parsed.pathname.split("/").filter(Boolean);
@@ -299,7 +295,8 @@ export function parsePullRequestRepo(
     const owner = parts[0];
     const name = parts[1];
     const number = Number(parts[3]);
-    if (!owner || !name || !Number.isInteger(number) || number <= 0) return null;
+    if (!owner || !name || !Number.isInteger(number) || number <= 0)
+      return null;
     return { owner, name, number };
   } catch {
     return null;
@@ -450,7 +447,8 @@ function actionSections(
           "Any required changes are committed and pushed to the review branch.",
           "You can report the verification you actually ran.",
         ],
-        reply: "Summarize the failing check, root cause, fix, and verification.",
+        reply:
+          "Summarize the failing check, root cause, fix, and verification.",
         closing: "Let's get CI green again.",
       };
     case "resolve_comments":
@@ -472,8 +470,10 @@ function actionSections(
           "Required code changes are committed and pushed before posting thread replies.",
           "No thread is marked resolved without either a concrete fix or a clear evidence-backed rationale.",
         ],
-        reply: "Summarize each thread and whether it required a code change or rationale-only reply.",
-        closing: "Evaluate every unresolved review comment against the code. Fix only legitimate issues; decline the rest with evidence. Do not resolve anything you have not actually evaluated.",
+        reply:
+          "Summarize each thread and whether it required a code change or rationale-only reply.",
+        closing:
+          "Evaluate every unresolved review comment against the code. Fix only legitimate issues; decline the rest with evidence. Do not resolve anything you have not actually evaluated.",
       };
     case "fix_conflicts":
       return {
@@ -493,7 +493,8 @@ function actionSections(
           "`git diff --check` is clean and no conflict markers remain.",
           "The resolved branch is pushed upstream.",
         ],
-        reply: "Briefly summarize which files were resolved and confirm the push status.",
+        reply:
+          "Briefly summarize which files were resolved and confirm the push status.",
         closing: "Let's resolve conflicts and ship the update.",
       };
     case "address_review":
@@ -515,8 +516,10 @@ function actionSections(
           "Required code changes are committed and pushed.",
           "The final response identifies what was changed and what verification ran.",
         ],
-        reply: "Summarize each requested change, the fix or rationale, and the verification.",
-        closing: "Evaluate the requested changes against the code. Fix only legitimate ones; decline the rest with evidence.",
+        reply:
+          "Summarize each requested change, the fix or rationale, and the verification.",
+        closing:
+          "Evaluate the requested changes against the code. Fix only legitimate ones; decline the rest with evidence.",
       };
   }
 }
@@ -648,7 +651,6 @@ function nullStatus(
   };
 }
 
-
 async function fetchUnresolvedThreads(
   runGh: GhRunner,
   bin: string,
@@ -689,7 +691,8 @@ async function loadStatus(
 ): Promise<WorktreePullRequestStatus> {
   const now = options.now ?? Date.now();
   const fetchedAt = new Date(now).toISOString();
-  const readBranch = options.readBranch ?? ((cwd: string) => readGitBranch(cwd));
+  const readBranch =
+    options.readBranch ?? ((cwd: string) => readGitBranch(cwd));
   const branch = readBranch(canonicalPath) ?? "";
   const resolveBin = options.resolveGhBin ?? resolveGhBin;
   const runGh = options.runGh ?? defaultRunGh;

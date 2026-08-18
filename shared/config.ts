@@ -43,12 +43,29 @@ export function getDashboardDbPath(root = agentDir()): string {
   return join(root, "omp-sessions-share.sqlite");
 }
 
+/**
+ * Fixed installed-plugin package manifest path (agent-relative).
+ * Never accepts arbitrary paths — always `../plugins/node_modules/omp-sessions-share/package.json`.
+ */
+export function getInstalledPluginPackagePath(root = agentDir()): string {
+  return join(
+    root,
+    "..",
+    "plugins",
+    "node_modules",
+    "omp-sessions-share",
+    "package.json",
+  );
+}
+
 function isNonEmptyString(v: unknown, max: number): v is string {
   return typeof v === "string" && v.length > 0 && v.length <= max;
 }
 
 function isSecret(v: unknown): v is string {
-  return typeof v === "string" && v.length >= SECRET_MIN && v.length <= SECRET_MAX;
+  return (
+    typeof v === "string" && v.length >= SECRET_MIN && v.length <= SECRET_MAX
+  );
 }
 
 function isHttpOrigin(v: unknown): v is string {
@@ -70,7 +87,11 @@ function isLocalOrigin(v: unknown): v is string {
 function isTailnetOrigin(v: unknown): v is string {
   if (!isHttpOrigin(v)) return false;
   const url = new URL(v);
-  return url.protocol === "https:" && url.hostname.endsWith(".ts.net") && url.port === "8443";
+  return (
+    url.protocol === "https:" &&
+    url.hostname.endsWith(".ts.net") &&
+    url.port === "8443"
+  );
 }
 
 /** Validate unknown JSON into ShareConfig; null when invalid. */
@@ -127,7 +148,9 @@ export async function writeShareConfig(
   const parsed = parseShareConfig(config);
   if (!parsed) throw new Error("invalid share config");
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(path, `${JSON.stringify(parsed, null, 2)}\n`, {
+    mode: 0o600,
+  });
   await chmod(path, 0o600);
 }
 
@@ -137,11 +160,7 @@ export function listenEndpoint(config: ShareConfig): {
   port: number;
 } {
   const u = new URL(config.localOrigin);
-  const port = u.port
-    ? Number(u.port)
-    : u.protocol === "https:"
-      ? 443
-      : 80;
+  const port = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("localOrigin port out of range");
   }

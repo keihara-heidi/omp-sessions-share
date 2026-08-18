@@ -4,7 +4,16 @@
  * Never accepts secrets via argv; never prints hostToken/cookieSecret.
  */
 import { randomBytes } from "node:crypto";
-import { access, chmod, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  cp,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
@@ -36,7 +45,9 @@ const OMP_PKG = "@oh-my-pi/pi-coding-agent";
 const COLLAB_TITLE_PATCH_MARKER = "omp-sessions-share:collab-title";
 
 /** Restore OMP auto-titling for prompts received through the collab guest. */
-export async function enableCollabGuestTitleGeneration(pkgRoot: string): Promise<boolean> {
+export async function enableCollabGuestTitleGeneration(
+  pkgRoot: string,
+): Promise<boolean> {
   const hostPath = path.join(pkgRoot, "src", "collab", "host.ts");
   try {
     const source = await readFile(hostPath, "utf8");
@@ -89,7 +100,9 @@ function resolveBunBin(): string {
   if (cachedBunBin) return cachedBunBin;
   const home = requireHome();
   const candidates = [
-    process.env.BUN_INSTALL ? path.join(process.env.BUN_INSTALL, "bin", "bun") : "",
+    process.env.BUN_INSTALL
+      ? path.join(process.env.BUN_INSTALL, "bin", "bun")
+      : "",
     path.join(home, ".bun", "bin", "bun"),
     "/opt/homebrew/bin/bun",
     "/usr/local/bin/bun",
@@ -122,7 +135,9 @@ function run(
   const stderr = result.stderr.toString();
   const code = result.exitCode ?? 1;
   if (code !== 0 && !opts.allowFailure) {
-    throw new Error(`${argv.join(" ")} failed (${code}): ${stderr.trim() || stdout.trim()}`);
+    throw new Error(
+      `${argv.join(" ")} failed (${code}): ${stderr.trim() || stdout.trim()}`,
+    );
   }
   return { ok: code === 0, stdout, stderr, code };
 }
@@ -171,7 +186,9 @@ async function discoverPublicOrigin(tailscaleBin: string): Promise<string> {
   try {
     status = JSON.parse(stdout) as TailscaleStatus;
   } catch {
-    throw new Error("tailscale status --json returned invalid JSON; is Tailscale running?");
+    throw new Error(
+      "tailscale status --json returned invalid JSON; is Tailscale running?",
+    );
   }
   if (status.BackendState !== "Running") {
     throw new Error(
@@ -180,7 +197,9 @@ async function discoverPublicOrigin(tailscaleBin: string): Promise<string> {
   }
   const raw = status.Self?.DNSName?.trim();
   if (!raw) {
-    throw new Error("Tailscale Self.DNSName missing; wait until this node is online on your tailnet.");
+    throw new Error(
+      "Tailscale Self.DNSName missing; wait until this node is online on your tailnet.",
+    );
   }
   const host = raw.replace(/\.$/, "").toLowerCase();
   if (!host.endsWith(".ts.net") || host.includes("/") || host.includes(":")) {
@@ -235,7 +254,10 @@ export async function cleanupLegacyLocalShareRelay(
 }
 
 async function resolveStaticBundleDir(): Promise<string> {
-  const candidates = [path.join(PACKAGE_ROOT, "out"), path.join(PACKAGE_ROOT, "web")];
+  const candidates = [
+    path.join(PACKAGE_ROOT, "out"),
+    path.join(PACKAGE_ROOT, "web"),
+  ];
   for (const dir of candidates) {
     if (
       (await pathExists(path.join(dir, "index.html"))) &&
@@ -259,7 +281,9 @@ async function resolveStaticBundleDir(): Promise<string> {
       }
     }
   }
-  throw new Error("Static dashboard bundle missing or incomplete. Build before setup.");
+  throw new Error(
+    "Static dashboard bundle missing or incomplete. Build before setup.",
+  );
 }
 
 /**
@@ -287,6 +311,12 @@ async function copyRuntimeAssets(staticDir: string): Promise<string> {
       await cp(src, path.join(staging, "lib", file));
     }
   }
+
+  const packageJson = path.join(PACKAGE_ROOT, "package.json");
+  if (!(await pathExists(packageJson))) {
+    throw new Error("Package incomplete: missing package.json");
+  }
+  await cp(packageJson, path.join(staging, "package.json"));
 
   // daemon/static.ts defaults to sibling web/ next to daemon/server.ts
   await cp(staticDir, path.join(staging, "daemon", "web"), { recursive: true });
@@ -351,13 +381,23 @@ async function installLaunchAgent(runtimeRoot: string): Promise<void> {
   await chmod(plistPath, 0o600);
 
   const domain = `gui/${uid}`;
-  run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
-  const loaded = run(["launchctl", "bootstrap", domain, plistPath], { allowFailure: true });
+  run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], {
+    allowFailure: true,
+  });
+  const loaded = run(["launchctl", "bootstrap", domain, plistPath], {
+    allowFailure: true,
+  });
   if (!loaded.ok) {
-    throw new Error(`launchctl bootstrap failed: ${loaded.stderr.trim() || loaded.stdout.trim()}`);
+    throw new Error(
+      `launchctl bootstrap failed: ${loaded.stderr.trim() || loaded.stdout.trim()}`,
+    );
   }
-  run(["launchctl", "enable", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
-  run(["launchctl", "kickstart", "-k", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
+  run(["launchctl", "enable", `${domain}/${LAUNCH_LABEL}`], {
+    allowFailure: true,
+  });
+  run(["launchctl", "kickstart", "-k", `${domain}/${LAUNCH_LABEL}`], {
+    allowFailure: true,
+  });
 }
 
 async function configureTailscaleServe(tailscaleBin: string): Promise<void> {
@@ -372,9 +412,7 @@ async function configureTailscaleServe(tailscaleBin: string): Promise<void> {
   ]);
 }
 
-function localServerControl(
-  options: LocalShareServerControlOptions = {},
-): {
+function localServerControl(options: LocalShareServerControlOptions = {}): {
   domain: string;
   service: string;
   plistPath: string;
@@ -387,7 +425,12 @@ function localServerControl(
   return {
     domain,
     service: `${domain}/${LAUNCH_LABEL}`,
-    plistPath: path.join(home, "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`),
+    plistPath: path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      `${LAUNCH_LABEL}.plist`,
+    ),
     runCommand: options.runCommand ?? run,
   };
 }
@@ -397,7 +440,9 @@ export function isLocalShareServerRunning(
   options: LocalShareServerControlOptions = {},
 ): boolean {
   const control = localServerControl(options);
-  return control.runCommand(["launchctl", "print", control.service], { allowFailure: true }).ok;
+  return control.runCommand(["launchctl", "print", control.service], {
+    allowFailure: true,
+  }).ok;
 }
 
 /** Restore the dashboard daemon and its private Tailscale Serve endpoint. */
@@ -407,15 +452,24 @@ export async function startLocalShareServer(
   await cleanupLegacyLocalShareRelay(options);
   const control = localServerControl(options);
   if (!(await pathExists(control.plistPath))) {
-    throw new Error("Dashboard service is not installed. Run omp-sessions-share setup first.");
+    throw new Error(
+      "Dashboard service is not installed. Run omp-sessions-share setup first.",
+    );
   }
 
   const loaded = control.runCommand(["launchctl", "print", control.service], {
     allowFailure: true,
   }).ok;
   if (!loaded) {
-    control.runCommand(["launchctl", "enable", control.service], { allowFailure: true });
-    control.runCommand(["launchctl", "bootstrap", control.domain, control.plistPath]);
+    control.runCommand(["launchctl", "enable", control.service], {
+      allowFailure: true,
+    });
+    control.runCommand([
+      "launchctl",
+      "bootstrap",
+      control.domain,
+      control.plistPath,
+    ]);
     control.runCommand(["launchctl", "kickstart", "-k", control.service]);
   }
   const tailscaleBin = options.tailscaleBin ?? resolveTailscaleBin();
@@ -446,7 +500,9 @@ export async function stopLocalShareServer(
   } catch (err) {
     serveError = err;
   }
-  control.runCommand(["launchctl", "bootout", control.service], { allowFailure: true });
+  control.runCommand(["launchctl", "bootout", control.service], {
+    allowFailure: true,
+  });
   if (serveError) throw serveError;
 }
 
@@ -465,8 +521,12 @@ async function resolveBundledOmpCli(): Promise<string> {
     }
   }
   const cli = path.join(path.dirname(pkgJson), "src", "cli.ts");
-  if (!(await enableCollabGuestTitleGeneration(path.dirname(path.dirname(cli))))) {
-    throw new Error("Installed OMP does not expose the supported collab prompt path");
+  if (
+    !(await enableCollabGuestTitleGeneration(path.dirname(path.dirname(cli))))
+  ) {
+    throw new Error(
+      "Installed OMP does not expose the supported collab prompt path",
+    );
   }
   return cli;
 }
@@ -480,7 +540,10 @@ async function isOwnedLauncher(filePath: string): Promise<boolean> {
   }
 }
 
-async function writeOwnedLauncher(filePath: string, sourceCli: string): Promise<void> {
+async function writeOwnedLauncher(
+  filePath: string,
+  sourceCli: string,
+): Promise<void> {
   const script =
     `#!/bin/sh\n` +
     `# ${LAUNCHER_MARKER}\n` +
@@ -527,7 +590,9 @@ async function installLauncherAndAlias(): Promise<void> {
   const home = requireHome();
   const sourceCli = await resolveBundledOmpCli();
   if (!(await pathExists(sourceCli))) {
-    throw new Error(`OMP source CLI not found at ${sourceCli} (package incomplete)`);
+    throw new Error(
+      `OMP source CLI not found at ${sourceCli} (package incomplete)`,
+    );
   }
 
   const userBinDir = path.join(home, ".local", "bin");
@@ -651,7 +716,10 @@ async function removeLauncherAlias(home: string): Promise<void> {
   }
   const next = stripManagedZshBlocks(source);
   if (next !== source) {
-    await writeFile(zshrcPath, next.endsWith("\n") || next.length === 0 ? next : `${next}\n`);
+    await writeFile(
+      zshrcPath,
+      next.endsWith("\n") || next.length === 0 ? next : `${next}\n`,
+    );
   }
 }
 
@@ -660,7 +728,9 @@ export async function uninstallLocalRuntime(): Promise<void> {
   assertDarwin();
   const home = requireHome();
   const domain = `gui/${process.getuid!()}`;
-  run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], { allowFailure: true });
+  run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], {
+    allowFailure: true,
+  });
   await cleanupLegacyLocalShareRelay();
   try {
     const tailscaleBin = resolveTailscaleBin();
@@ -677,9 +747,12 @@ export async function uninstallLocalRuntime(): Promise<void> {
   await rm(dbPath, { force: true });
   await rm(`${dbPath}-wal`, { force: true });
   await rm(`${dbPath}-shm`, { force: true });
-  await rm(path.join(home, "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`), {
-    force: true,
-  });
+  await rm(
+    path.join(home, "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`),
+    {
+      force: true,
+    },
+  );
   await removeOwnedLauncher(path.join(home, ".local", "bin", "omp-share"));
   await removeOwnedLauncher(path.join(home, ".local", "bin", "omp"));
   await removeLegacyExtensionCopy();

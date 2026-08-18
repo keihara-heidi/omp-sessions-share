@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { FolderGit2, LogOut, MessagesSquare, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  FolderGit2,
+  LogOut,
+  MessagesSquare,
+  type LucideIcon,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useDashboardEvents, useLogout } from "@/app/components/use-sessions";
@@ -16,7 +22,18 @@ const DESTINATIONS: Array<{
 }> = [
   { href: "/", label: "Sessions", icon: MessagesSquare },
   { href: "/workspaces/", label: "Workspaces", icon: FolderGit2 },
+  { href: "/system/", label: "System", icon: Activity },
 ];
+
+/** Deepest-prefix match; the root destination wins only when nothing else does. */
+function activeHref(pathname: string): string {
+  const match = DESTINATIONS.find(({ href }) => {
+    if (href === "/") return false;
+    const base = href.slice(0, -1);
+    return pathname === base || pathname.startsWith(`${base}/`);
+  });
+  return match ? match.href : "/";
+}
 
 function DashboardLink({
   href,
@@ -52,24 +69,23 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const { mutate: logOut, isPending: isLoggingOut } = useLogout();
   useDashboardEvents();
 
-  const workspacesActive = pathname.startsWith("/workspaces");
-  const title = workspacesActive ? "OMP Workspaces" : "OMP Sessions";
+  const active = activeHref(pathname);
+  const title = `OMP ${DESTINATIONS.find(({ href }) => href === active)?.label ?? "Sessions"}`;
 
   return (
     <>
       <div className="mx-auto w-full max-w-4xl px-4 pt-5 sm:px-6 sm:pt-8">
         <PageHeader>
           <PageTitle kicker="on this Mac">{title}</PageTitle>
-          <nav aria-label="Dashboard" className="ml-auto hidden items-center gap-1 sm:flex">
+          <nav
+            aria-label="Dashboard"
+            className="ml-auto hidden items-center gap-1 sm:flex"
+          >
             {DESTINATIONS.map((destination) => (
               <DashboardLink
                 key={destination.href}
                 {...destination}
-                active={
-                  destination.href === "/"
-                    ? !workspacesActive
-                    : workspacesActive
-                }
+                active={destination.href === active}
               />
             ))}
           </nav>
@@ -96,9 +112,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           <DashboardLink
             key={destination.href}
             {...destination}
-            active={
-              destination.href === "/" ? !workspacesActive : workspacesActive
-            }
+            active={destination.href === active}
             mobile
           />
         ))}

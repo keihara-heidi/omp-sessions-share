@@ -46,13 +46,15 @@ describe("serveStatic", () => {
 
   test("serves exported directory routes with or without a trailing slash", async () => {
     const dir = mkdtempSync(join(tmpdir(), "omp-static-route-"));
-    mkdirSync(join(dir, "workspaces"));
-    writeFileSync(join(dir, "workspaces", "index.html"), "<html>workspaces</html>");
+    for (const route of ["workspaces", "system"] as const) {
+      mkdirSync(join(dir, route));
+      writeFileSync(join(dir, route, "index.html"), `<html>${route}</html>`);
 
-    for (const pathname of ["/workspaces", "/workspaces/"]) {
-      const response = await serveStatic(dir, pathname);
-      expect(response.status).toBe(200);
-      expect(await response.text()).toContain("workspaces");
+      for (const pathname of [`/${route}`, `/${route}/`]) {
+        const response = await serveStatic(dir, pathname);
+        expect(response.status).toBe(200);
+        expect(await response.text()).toContain(route);
+      }
     }
   });
 });

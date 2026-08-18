@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
@@ -9,6 +15,7 @@ import {
   resetDashboardReconciliationForTests,
 } from "../daemon/api";
 import { DASHBOARD_COOKIE_NAME } from "../lib/auth";
+import { HEALTH_CHECK_IDS, type SystemHealth } from "../lib/contracts";
 import {
   configureDashboardDb,
   deactivateSession,
@@ -28,6 +35,18 @@ const config: ShareConfig = {
   hostToken: "host-token-long-enough",
   dashboardPassword: "dashboard-password",
   cookieSecret: "cookie-secret-long-enough",
+};
+
+const healthySystem: SystemHealth = {
+  overall: "healthy",
+  checkedAt: "2026-08-18T12:00:00.000Z",
+  checks: HEALTH_CHECK_IDS.map((id) => ({
+    id,
+    label: id,
+    level: "healthy",
+    summary: `${id} healthy`,
+    checkedAt: "2026-08-18T12:00:00.000Z",
+  })),
 };
 
 const hostHeaders = {
@@ -77,7 +96,9 @@ async function api(
   return res;
 }
 
-async function loginCookie(password = config.dashboardPassword): Promise<string> {
+async function loginCookie(
+  password = config.dashboardPassword,
+): Promise<string> {
   const res = await api(
     jsonRequest("http://local/api/auth/login", { password }),
   );
@@ -104,7 +125,8 @@ async function rsaPair(): Promise<CryptoKeyPair> {
 
 describe("buildOmpTerminalArgs", () => {
   test("delivers a multiline prompt as one decoded argument", () => {
-    const prompt = "Resolve Merge Conflicts\n\nGoal:\nPreserve the complete prompt.";
+    const prompt =
+      "Resolve Merge Conflicts\n\nGoal:\nPreserve the complete prompt.";
     const args = buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp", prompt);
 
     expect(args[4]).toContain("$(/usr/bin/printf %s ");
@@ -158,15 +180,14 @@ afterEach(() => {
 describe("local daemon auth gates", () => {
   test("password cookie login and reject bad password", async () => {
     expect(
-      (
-        await api(
-          new Request("http://local/api/sessions", { method: "GET" }),
-        )
-      ).status,
+      (await api(new Request("http://local/api/sessions", { method: "GET" })))
+        .status,
     ).toBe(401);
 
     const bad = await api(
-      jsonRequest("http://local/api/auth/login", { password: "nope-nope-nope" }),
+      jsonRequest("http://local/api/auth/login", {
+        password: "nope-nope-nope",
+      }),
     );
     expect(bad.status).toBe(401);
 
@@ -180,6 +201,58 @@ describe("local daemon auth gates", () => {
     expect(await meta.json()).toEqual({
       data: { publicOrigin: config.publicOrigin },
     });
+  });
+
+  test("system health requires auth, disables HTTP caching, and fixes provider errors", async () => {
+    let calls = 0;
+    const unauthorized = await handleApi(
+      new Request("http://local/api/system/health"),
+      config,
+      "/api/system/health",
+      undefined,
+      undefined,
+      {
+        getSystemHealth: async () => {
+          calls += 1;
+          return healthySystem;
+        },
+      },
+    );
+    expect(unauthorized?.status).toBe(401);
+    expect(unauthorized?.headers.get("cache-control")).toBe("no-store");
+    expect(calls).toBe(0);
+
+    const cookie = await loginCookie();
+    const request = new Request("http://local/api/system/health", {
+      headers: { cookie },
+    });
+    const ok = await handleApi(
+      request,
+      config,
+      "/api/system/health",
+      undefined,
+      undefined,
+      { getSystemHealth: async () => healthySystem },
+    );
+    expect(ok?.status).toBe(200);
+    expect(ok?.headers.get("cache-control")).toBe("no-store");
+    expect(await ok?.json()).toEqual({ data: healthySystem });
+
+    const failed = await handleApi(
+      request,
+      config,
+      "/api/system/health",
+      undefined,
+      undefined,
+      {
+        getSystemHealth: async () => {
+          throw new Error("secret stderr /private/path");
+        },
+      },
+    );
+    expect(failed?.status).toBe(503);
+    expect(failed?.headers.get("cache-control")).toBe("no-store");
+    expect(await failed?.json()).toEqual({ error: "Service unavailable" });
   });
 
   test("Bearer host heartbeat required", async () => {
@@ -335,19 +408,27 @@ describe("local daemon auth gates", () => {
         const body = (await response.json()) as {
           data: { locations: Array<{ group: { path: string } }> };
         };
-        expect(body.data.locations.map((location) => location.group.path)).toEqual([
-          realpathSync(path),
-        ]);
+        expect(
+          body.data.locations.map((location) => location.group.path),
+        ).toEqual([realpathSync(path)]);
       }
 
       const projectResponse = await api(
-        jsonRequest("http://local/api/host/locations", { path: project }, hostHeaders),
+        jsonRequest(
+          "http://local/api/host/locations",
+          { path: project },
+          hostHeaders,
+        ),
       );
       expect(projectResponse.status).toBe(200);
       const projectBody = (await projectResponse.json()) as {
         data: { locations: Array<{ group: { path: string } }> };
       };
-      expect(projectBody.data.locations.map((location) => location.group.path).sort()).toEqual(
+      expect(
+        projectBody.data.locations
+          .map((location) => location.group.path)
+          .sort(),
+      ).toEqual(
         [realpathSync(projectRepoA), realpathSync(projectRepoB)].sort(),
       );
 
@@ -358,7 +439,11 @@ describe("local daemon auth gates", () => {
       const dashboardBody = (await dashboard.json()) as {
         data: { locations: Array<{ group: { path: string } }> };
       };
-      expect(dashboardBody.data.locations.map((location) => location.group.path).sort()).toEqual(
+      expect(
+        dashboardBody.data.locations
+          .map((location) => location.group.path)
+          .sort(),
+      ).toEqual(
         [repository, folder, projectRepoA, projectRepoB]
           .map((path) => realpathSync(path))
           .sort(),
@@ -393,9 +478,9 @@ describe("local daemon auth gates", () => {
         };
       };
       expect(body.data.sessions).toEqual([]);
-      expect(body.data.locations.map((location) => location.worktree.path).sort()).toEqual(
-        [realpathSync(repo), realpathSync(linked.path)].sort(),
-      );
+      expect(
+        body.data.locations.map((location) => location.worktree.path).sort(),
+      ).toEqual([realpathSync(repo), realpathSync(linked.path)].sort());
     } finally {
       rmSync(linked.path, { recursive: true, force: true });
       rmSync(repo, { recursive: true, force: true });
@@ -584,10 +669,16 @@ describe("local daemon auth gates", () => {
     );
 
     const path = "/api/sessions/session_inactive/deactivate";
-    expect((await api(new Request(`http://local${path}`, { method: "POST" }))).status).toBe(401);
+    expect(
+      (await api(new Request(`http://local${path}`, { method: "POST" })))
+        .status,
+    ).toBe(401);
     const cookie = await loginCookie();
     const removed = await api(
-      new Request(`http://local${path}`, { method: "POST", headers: { cookie } }),
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { cookie },
+      }),
     );
     expect(removed.status).toBe(200);
     expect(await removed.json()).toEqual({ data: { ok: true } });
@@ -595,7 +686,9 @@ describe("local daemon auth gates", () => {
     const repeatedHeartbeat = await api(
       jsonRequest("http://local/api/host/sessions", heartbeatBody, hostHeaders),
     );
-    expect(await repeatedHeartbeat.json()).toEqual({ data: { inactive: true } });
+    expect(await repeatedHeartbeat.json()).toEqual({
+      data: { inactive: true },
+    });
     const sessions = await api(
       new Request("http://local/api/sessions", { headers: { cookie } }),
     );
@@ -639,7 +732,10 @@ describe("approved session link flow", () => {
     });
 
     const keyPair = await rsaPair();
-    const publicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const publicKeyJwk = await crypto.subtle.exportKey(
+      "jwk",
+      keyPair.publicKey,
+    );
 
     const create = await api(
       jsonRequest(
@@ -746,7 +842,10 @@ describe("approved session link flow", () => {
     }
 
     const keyPair = await rsaPair();
-    const publicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const publicKeyJwk = await crypto.subtle.exportKey(
+      "jwk",
+      keyPair.publicKey,
+    );
     const create = await api(
       jsonRequest(
         "http://local/api/sessions/session_a/requests",
@@ -801,7 +900,10 @@ describe("approved session link flow", () => {
           cookie,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ deviceName: huge, publicKeyJwk: { kty: "RSA" } }),
+        body: JSON.stringify({
+          deviceName: huge,
+          publicKeyJwk: { kty: "RSA" },
+        }),
       }),
     );
     expect(res.status).toBe(400);
@@ -819,7 +921,9 @@ describe("GET /api/events SSE", () => {
   }
 
   test("requires dashboard cookie auth", async () => {
-    const res = await api(new Request("http://local/api/events", { method: "GET" }));
+    const res = await api(
+      new Request("http://local/api/events", { method: "GET" }),
+    );
     expect(res.status).toBe(401);
   });
 
@@ -834,7 +938,9 @@ describe("GET /api/events SSE", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-type") ?? "").toContain("text/event-stream");
+    expect(res.headers.get("content-type") ?? "").toContain(
+      "text/event-stream",
+    );
 
     const reader = res.body!.getReader();
     const initial = await readChunk(reader);
@@ -843,8 +949,14 @@ describe("GET /api/events SSE", () => {
       .split("\n")
       .find((line) => line.startsWith("data: "));
     expect(initialDataLine).toBeTruthy();
-    const initialPayload = JSON.parse(initialDataLine!.slice("data: ".length)) as {
-      data: { sessions: unknown[]; locations: unknown[]; recentSessions: unknown[] };
+    const initialPayload = JSON.parse(
+      initialDataLine!.slice("data: ".length),
+    ) as {
+      data: {
+        sessions: unknown[];
+        locations: unknown[];
+        recentSessions: unknown[];
+      };
     };
     expect(initialPayload.data).toEqual({
       sessions: [],
@@ -862,7 +974,9 @@ describe("GET /api/events SSE", () => {
 
     const next = await readChunk(reader);
     expect(next).toContain("event: dashboard\n");
-    const nextDataLine = next.split("\n").find((line) => line.startsWith("data: "));
+    const nextDataLine = next
+      .split("\n")
+      .find((line) => line.startsWith("data: "));
     expect(nextDataLine).toBeTruthy();
     const nextPayload = JSON.parse(nextDataLine!.slice("data: ".length)) as {
       data: {
@@ -871,10 +985,16 @@ describe("GET /api/events SSE", () => {
         recentSessions: unknown[];
       };
     };
-    expect(nextPayload.data.sessions.some((session) => session.id === "sse-session-1"))
-      .toBe(true);
-    expect(nextPayload.data.locations.some((location) => location.worktree.path === "/tmp/sse"))
-      .toBe(true);
+    expect(
+      nextPayload.data.sessions.some(
+        (session) => session.id === "sse-session-1",
+      ),
+    ).toBe(true);
+    expect(
+      nextPayload.data.locations.some(
+        (location) => location.worktree.path === "/tmp/sse",
+      ),
+    ).toBe(true);
 
     ac.abort();
     // After abort, further upserts must not throw; stream is closed.
@@ -1023,7 +1143,6 @@ describe("pull request readiness and repair launch", () => {
     expect(await response?.json()).toEqual({ data: { ok: true } });
     expect(merged).toEqual([42]);
   });
-
 
   test("POST /api/worktrees/pr-task validates body, auth, path, and action", async () => {
     const session = upsertSession({

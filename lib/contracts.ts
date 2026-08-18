@@ -71,6 +71,149 @@ export type ApiOk<T> = { data: T };
 export type ApiErr = { error: string };
 export type ApiResult<T> = ApiOk<T> | ApiErr;
 
+export type HealthLevel = "healthy" | "warning" | "unavailable" | "unknown";
+
+export type HealthCheckId =
+  | "daemon"
+  | "runtime-version"
+  | "database"
+  | "tailscale-serve"
+  | "dashboard-ingress"
+  | "omp"
+  | "omp-share"
+  | "github-cli"
+  | "sleep-inhibitor";
+
+export type HealthCheck = {
+  id: HealthCheckId;
+  label: string;
+  level: HealthLevel;
+  summary: string;
+  checkedAt: string;
+  action?: string;
+};
+
+export type SystemHealth = {
+  overall: HealthLevel;
+  checkedAt: string;
+  checks: HealthCheck[];
+};
+
+export const HEALTH_CHECK_IDS = [
+  "daemon",
+  "runtime-version",
+  "database",
+  "tailscale-serve",
+  "dashboard-ingress",
+  "omp",
+  "omp-share",
+  "github-cli",
+  "sleep-inhibitor",
+] as const satisfies readonly HealthCheckId[];
+
+const HEALTH_LEVEL_RANK: Record<HealthLevel, number> = {
+  unavailable: 0,
+  warning: 1,
+  unknown: 2,
+  healthy: 3,
+};
+
+const HEALTH_CHECK_ID_SET: Record<string, true> = {
+  daemon: true,
+  "runtime-version": true,
+  database: true,
+  "tailscale-serve": true,
+  "dashboard-ingress": true,
+  omp: true,
+  "omp-share": true,
+  "github-cli": true,
+  "sleep-inhibitor": true,
+};
+
+const HEALTH_LABEL_MAX = 64;
+const HEALTH_SUMMARY_MAX = 256;
+const HEALTH_ACTION_MAX = 128;
+
+export function isHealthLevel(v: unknown): v is HealthLevel {
+  return (
+    v === "healthy" || v === "warning" || v === "unavailable" || v === "unknown"
+  );
+}
+
+export function isHealthCheckId(v: unknown): v is HealthCheckId {
+  return typeof v === "string" && HEALTH_CHECK_ID_SET[v] === true;
+}
+
+/** Deterministic rollup: unavailable > warning > unknown > healthy. */
+export function overallHealthLevel(
+  levels: readonly HealthLevel[],
+): HealthLevel {
+  let best: HealthLevel = "healthy";
+  let bestRank = HEALTH_LEVEL_RANK.healthy;
+  for (const level of levels) {
+    const rank = HEALTH_LEVEL_RANK[level];
+    if (rank < bestRank) {
+      best = level;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
+export function parseHealthCheck(v: unknown): HealthCheck | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!isHealthCheckId(o.id)) return null;
+  if (!isNonEmptyString(o.label, HEALTH_LABEL_MAX)) return null;
+  if (!isHealthLevel(o.level)) return null;
+  if (!isNonEmptyString(o.summary, HEALTH_SUMMARY_MAX)) return null;
+  if (!isIsoTimestamp(o.checkedAt)) return null;
+  if (
+    o.action !== undefined &&
+    !isNonEmptyString(o.action, HEALTH_ACTION_MAX)
+  ) {
+    return null;
+  }
+  const check: HealthCheck = {
+    id: o.id,
+    label: o.label,
+    level: o.level,
+    summary: o.summary,
+    checkedAt: o.checkedAt,
+  };
+  if (typeof o.action === "string") check.action = o.action;
+  return check;
+}
+
+export function parseSystemHealth(v: unknown): SystemHealth | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!isHealthLevel(o.overall)) return null;
+  if (!isIsoTimestamp(o.checkedAt)) return null;
+  if (!Array.isArray(o.checks) || o.checks.length !== HEALTH_CHECK_IDS.length) {
+    return null;
+  }
+  const checks: HealthCheck[] = [];
+  const seen = new Set<HealthCheckId>();
+  for (const item of o.checks) {
+    const check = parseHealthCheck(item);
+    if (!check) return null;
+    if (seen.has(check.id)) return null;
+    seen.add(check.id);
+    checks.push(check);
+  }
+  for (const id of HEALTH_CHECK_IDS) {
+    if (!seen.has(id)) return null;
+  }
+  const overall = overallHealthLevel(checks.map((c) => c.level));
+  if (overall !== o.overall) return null;
+  return {
+    overall,
+    checkedAt: o.checkedAt,
+    checks,
+  };
+}
+
 export const SESSION_TTL_SECONDS = 15;
 export const REQUEST_TTL_SECONDS = 5 * 60;
 
@@ -87,7 +230,6 @@ export function isNonEmptyString(v: unknown, max = 512): v is string {
 export function isValidId(v: unknown): v is string {
   return typeof v === "string" && ID_RE.test(v);
 }
-
 
 export function isIsoTimestamp(v: unknown): v is string {
   if (typeof v !== "string" || !ISO_RE.test(v)) return false;
@@ -110,8 +252,10 @@ export function isValidPublicKeyJwk(v: unknown): v is JsonWebKey {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
   const j = v as Record<string, unknown>;
   if (j.kty !== "RSA") return false;
-  if (typeof j.n !== "string" || j.n.length < 342 || j.n.length > 1024) return false;
-  if (typeof j.e !== "string" || j.e.length < 1 || j.e.length > 16) return false;
+  if (typeof j.n !== "string" || j.n.length < 342 || j.n.length > 1024)
+    return false;
+  if (typeof j.e !== "string" || j.e.length < 1 || j.e.length > 16)
+    return false;
   for (const f of PRIVATE_JWK_FIELDS) {
     if (f in j && j[f] != null) return false;
   }
@@ -178,14 +322,16 @@ export async function readJsonBody(
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    return { ok: true, value: JSON.parse(UTF8_DECODER.decode(bytes)) as unknown };
+    return {
+      ok: true,
+      value: JSON.parse(UTF8_DECODER.decode(bytes)) as unknown,
+    };
   } catch {
     return { ok: false, error: "Invalid JSON body" };
   } finally {
     reader.releaseLock();
   }
 }
-
 
 export function parseSessionGroup(v: unknown): SessionGroup | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
@@ -232,7 +378,9 @@ export function parseSessionSummary(v: unknown): SessionSummary | null {
   };
 }
 
-export function parseRecentSessionSummary(v: unknown): RecentSessionSummary | null {
+export function parseRecentSessionSummary(
+  v: unknown,
+): RecentSessionSummary | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
   if (!isValidId(o.id)) return null;
@@ -299,7 +447,6 @@ function isValidSessionFilePath(v: unknown): v is string {
   return v.endsWith(".jsonl");
 }
 
-
 export function parseHostSessionHeartbeat(
   v: unknown,
 ): HostSessionHeartbeatInput | null {
@@ -347,7 +494,9 @@ export function parseLaunchSessionInput(v: unknown): LaunchSessionInput | null {
 /** Browser request to create a linked Git worktree for a live repo group. */
 export type CreateWorktreeInput = { groupPath: string };
 
-export function parseCreateWorktreeInput(v: unknown): CreateWorktreeInput | null {
+export function parseCreateWorktreeInput(
+  v: unknown,
+): CreateWorktreeInput | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const { groupPath } = v as Record<string, unknown>;
   return isNonEmptyString(groupPath, 1024) ? { groupPath } : null;
@@ -359,7 +508,9 @@ export type DeleteWorktreeInput = {
   worktreePath: string;
 };
 
-export function parseDeleteWorktreeInput(v: unknown): DeleteWorktreeInput | null {
+export function parseDeleteWorktreeInput(
+  v: unknown,
+): DeleteWorktreeInput | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const { groupPath, worktreePath } = v as Record<string, unknown>;
   if (!isNonEmptyString(groupPath, 1024)) return null;
@@ -379,10 +530,7 @@ export type PullRequestReadiness =
   | "unknown";
 
 export type PullRequestAction =
-  | "fix_checks"
-  | "resolve_comments"
-  | "fix_conflicts"
-  | "address_review";
+  "fix_checks" | "resolve_comments" | "fix_conflicts" | "address_review";
 
 export type WorktreePullRequestStatus = {
   worktreePath: string;
@@ -398,10 +546,7 @@ export type WorktreePullRequestStatus = {
     readiness: PullRequestReadiness;
     mergeable: "mergeable" | "conflicting" | "unknown";
     reviewDecision:
-      | "approved"
-      | "changes_requested"
-      | "review_required"
-      | "none";
+      "approved" | "changes_requested" | "review_required" | "none";
     checks: {
       state: "success" | "failure" | "pending" | "none";
       total: number;
@@ -416,7 +561,9 @@ export type MergePullRequestInput = {
   worktreePath: string;
 };
 
-export function parseMergePullRequestInput(v: unknown): MergePullRequestInput | null {
+export function parseMergePullRequestInput(
+  v: unknown,
+): MergePullRequestInput | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const { worktreePath } = v as Record<string, unknown>;
   return isNonEmptyString(worktreePath, 1024) ? { worktreePath } : null;
@@ -446,7 +593,6 @@ export function parseLaunchPullRequestTaskInput(
   }
   return { worktreePath, action: action as PullRequestAction };
 }
-
 
 /** Browser create-request body. */
 export type CreateJoinRequestInput = {
@@ -518,4 +664,3 @@ export function jsonOk<T>(data: T, init?: ResponseInit): Response {
 export function jsonError(error: string, status = 400): Response {
   return Response.json({ error } satisfies ApiErr, { status });
 }
-

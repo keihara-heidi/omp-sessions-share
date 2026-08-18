@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+  mkdir,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +33,9 @@ import {
 } from "../setup/install";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const PKG = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8")) as {
+const PKG = JSON.parse(
+  await readFile(path.join(ROOT, "package.json"), "utf8"),
+) as {
   name?: string;
   private?: boolean;
   license?: string;
@@ -95,7 +104,14 @@ describe("public package manifest", () => {
 
   test("files include runtime surface and exclude app source", () => {
     const files = PKG.files ?? [];
-    for (const required of ["LICENSE", "daemon", "shared", "setup", "out", "extension"]) {
+    for (const required of [
+      "LICENSE",
+      "daemon",
+      "shared",
+      "setup",
+      "out",
+      "extension",
+    ]) {
       expect(files).toContain(required);
     }
     // Dashboard is prebuilt into out/; app/ stays publish-time build input only.
@@ -114,7 +130,14 @@ describe("public package manifest", () => {
   });
 
   test("packaged paths exist on disk for files globs", async () => {
-    for (const rel of ["LICENSE", "daemon", "shared", "setup", "extension", "out"]) {
+    for (const rel of [
+      "LICENSE",
+      "daemon",
+      "shared",
+      "setup",
+      "extension",
+      "out",
+    ]) {
       const st = await stat(path.join(ROOT, rel)).catch(() => null);
       // out/ may be absent pre-build in a fresh checkout; still required in files.
       if (rel === "out" && !st) continue;
@@ -134,12 +157,24 @@ describe("share config parse/write", () => {
   });
 
   test("rejects non-loopback, missing/wrong port, http tailnet, and short secrets", () => {
-    expect(parseShareConfig({ ...VALID, localOrigin: "http://localhost:7466" })).toBeNull();
-    expect(parseShareConfig({ ...VALID, localOrigin: "http://127.0.0.1:80" })).toBeNull();
-    expect(parseShareConfig({ ...VALID, publicOrigin: "http://mac.ts.net:8443" })).toBeNull();
-    expect(parseShareConfig({ ...VALID, publicOrigin: "https://mac.ts.net" })).toBeNull();
-    expect(parseShareConfig({ ...VALID, publicOrigin: "https://mac.ts.net:443" })).toBeNull();
-    expect(parseShareConfig({ ...VALID, publicOrigin: "https://example.com:8443" })).toBeNull();
+    expect(
+      parseShareConfig({ ...VALID, localOrigin: "http://localhost:7466" }),
+    ).toBeNull();
+    expect(
+      parseShareConfig({ ...VALID, localOrigin: "http://127.0.0.1:80" }),
+    ).toBeNull();
+    expect(
+      parseShareConfig({ ...VALID, publicOrigin: "http://mac.ts.net:8443" }),
+    ).toBeNull();
+    expect(
+      parseShareConfig({ ...VALID, publicOrigin: "https://mac.ts.net" }),
+    ).toBeNull();
+    expect(
+      parseShareConfig({ ...VALID, publicOrigin: "https://mac.ts.net:443" }),
+    ).toBeNull();
+    expect(
+      parseShareConfig({ ...VALID, publicOrigin: "https://example.com:8443" }),
+    ).toBeNull();
     expect(parseShareConfig({ ...VALID, hostToken: "short" })).toBeNull();
     expect(parseShareConfig({ ...VALID, version: 2 })).toBeNull();
   });
@@ -148,7 +183,9 @@ describe("share config parse/write", () => {
     const agent = await makeTemp("omp-share-cfg-");
     process.env.PI_CODING_AGENT_DIR = agent;
 
-    expect(getShareConfigPath()).toBe(path.join(agent, "omp-sessions-share.json"));
+    expect(getShareConfigPath()).toBe(
+      path.join(agent, "omp-sessions-share.json"),
+    );
 
     await writeShareConfig(VALID);
     const cfgPath = getShareConfigPath();
@@ -167,7 +204,10 @@ describe("share config parse/write", () => {
     const agent = await makeTemp("omp-share-bad-");
     const cfgPath = path.join(agent, "omp-sessions-share.json");
     await expect(
-      writeShareConfig({ ...VALID, publicOrigin: "https://not-tailnet.example" }, cfgPath),
+      writeShareConfig(
+        { ...VALID, publicOrigin: "https://not-tailnet.example" },
+        cfgPath,
+      ),
     ).rejects.toThrow(/invalid share config/i);
     await expect(stat(cfgPath)).rejects.toThrow();
   });
@@ -242,7 +282,14 @@ describe("setup contract without system mutation", () => {
       ["launchctl", "enable", "gui/501/sh.omp.sessions-share"],
       ["launchctl", "bootstrap", "gui/501", plist],
       ["launchctl", "kickstart", "-k", "gui/501/sh.omp.sessions-share"],
-      ["tailscale", "serve", "--bg", "--https=8443", "--yes", "http://127.0.0.1:7466"],
+      [
+        "tailscale",
+        "serve",
+        "--bg",
+        "--https=8443",
+        "--yes",
+        "http://127.0.0.1:7466",
+      ],
       ["tailscale", "serve", "--https=8443", "off"],
       ["launchctl", "bootout", "gui/501/sh.omp.sessions-share"],
     ]);
@@ -274,7 +321,14 @@ describe("setup contract without system mutation", () => {
 
     expect(commands).toEqual([
       ["launchctl", "print", "gui/501/sh.omp.sessions-share"],
-      ["tailscale", "serve", "--bg", "--https=8443", "--yes", "http://127.0.0.1:7466"],
+      [
+        "tailscale",
+        "serve",
+        "--bg",
+        "--https=8443",
+        "--yes",
+        "http://127.0.0.1:7466",
+      ],
     ]);
   });
 
@@ -295,11 +349,17 @@ describe("setup contract without system mutation", () => {
         env: {
           ...process.env,
           // Isolate any accidental deeper path; guard should exit first.
-          PI_CODING_AGENT_DIR: path.join(tmpdir(), "omp-share-should-not-write"),
+          PI_CODING_AGENT_DIR: path.join(
+            tmpdir(),
+            "omp-share-should-not-write",
+          ),
           HOME: path.join(tmpdir(), "omp-share-home-should-not-write"),
         },
       });
-      const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+      const [code, stderr] = await Promise.all([
+        proc.exited,
+        new Response(proc.stderr).text(),
+      ]);
       expect(code, args.join(" ")).toBe(2);
       expect(stderr).toMatch(/Refusing secret-like CLI flags/i);
     }
@@ -317,14 +377,20 @@ describe("setup contract without system mutation", () => {
         HOME: path.join(tmpdir(), "omp-share-help-home"),
       },
     });
-    const [code, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+    const [code, stdout] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+    ]);
     expect(code).toBe(0);
     expect(stdout).toMatch(/omp-sessions-share/);
     expect(stdout).toMatch(/never passed on argv/i);
   });
 
   test("installer source never accepts secrets via argv and generates them locally", async () => {
-    const installSrc = await readFile(path.join(ROOT, "setup/install.ts"), "utf8");
+    const installSrc = await readFile(
+      path.join(ROOT, "setup/install.ts"),
+      "utf8",
+    );
     const cliSrc = await readFile(path.join(ROOT, "setup/cli.ts"), "utf8");
 
     expect(cliSrc).toMatch(/Refusing secret-like CLI flags/);
@@ -333,15 +399,21 @@ describe("setup contract without system mutation", () => {
     expect(cliSrc).toMatch(/lower\.includes\("secret"\)/);
 
     // setupLocalRuntime takes no secret parameters.
-    expect(installSrc).toMatch(/export async function setupLocalRuntime\(\): Promise<ShareConfig>/);
-    expect(installSrc).not.toMatch(/setupLocalRuntime\([^)]*(token|password|secret)/i);
+    expect(installSrc).toMatch(
+      /export async function setupLocalRuntime\(\): Promise<ShareConfig>/,
+    );
+    expect(installSrc).not.toMatch(
+      /setupLocalRuntime\([^)]*(token|password|secret)/i,
+    );
 
     // Secrets are generated, not read from argv/env in installer.
     expect(installSrc).toMatch(/hostToken:\s*secretToken\(\)/);
     expect(installSrc).toMatch(/dashboardPassword:\s*secretToken\(\)/);
     expect(installSrc).toMatch(/cookieSecret:\s*secretToken\(\)/);
     expect(installSrc).not.toMatch(/process\.argv/);
-    expect(installSrc).not.toMatch(/OMPI_SHARE_HOST_TOKEN|OMPI_SHARE_COOKIE_SECRET|OMPI_SHARE_DASHBOARD_PASSWORD/);
+    expect(installSrc).not.toMatch(
+      /OMPI_SHARE_HOST_TOKEN|OMPI_SHARE_COOKIE_SECRET|OMPI_SHARE_DASHBOARD_PASSWORD/,
+    );
   });
 });
 
@@ -352,7 +424,10 @@ describe("packaged path resolution fixtures", () => {
     const envWeb = path.join(fixture, "env-web");
     await mkdir(path.join(sibling, "web"), { recursive: true });
     await mkdir(envWeb, { recursive: true });
-    await writeFile(path.join(sibling, "web", "index.html"), "<html>sibling</html>\n");
+    await writeFile(
+      path.join(sibling, "web", "index.html"),
+      "<html>sibling</html>\n",
+    );
     await writeFile(path.join(envWeb, "index.html"), "<html>env</html>\n");
 
     delete process.env.OMP_SESSIONS_SHARE_WEB;
@@ -371,15 +446,26 @@ describe("packaged path resolution fixtures", () => {
   });
 
   test("installer runtime layout constants point at package-local assets", async () => {
-    const installSrc = await readFile(path.join(ROOT, "setup/install.ts"), "utf8");
+    const installSrc = await readFile(
+      path.join(ROOT, "setup/install.ts"),
+      "utf8",
+    );
     // Runtime copy sources are package dirs, not absolute user paths.
-    expect(installSrc).toMatch(/PACKAGE_ROOT\s*=\s*path\.resolve\(import\.meta\.dir,\s*"\.\."\)/);
+    expect(installSrc).toMatch(
+      /PACKAGE_ROOT\s*=\s*path\.resolve\(import\.meta\.dir,\s*"\.\."\)/,
+    );
     expect(installSrc).toMatch(/path\.join\(PACKAGE_ROOT,\s*"web"\)/);
     expect(installSrc).toMatch(/path\.join\(PACKAGE_ROOT,\s*"out"\)/);
-    expect(installSrc).toMatch(/LOCAL_ORIGIN\s*=\s*"http:\/\/127\.0\.0\.1:7466"/);
+    expect(installSrc).toMatch(
+      /LOCAL_ORIGIN\s*=\s*"http:\/\/127\.0\.0\.1:7466"/,
+    );
     expect(installSrc).toMatch(/TAILSCALE_HTTPS_PORT\s*=\s*8443/);
     expect(installSrc).toMatch(/LAUNCH_LABEL\s*=\s*"sh\.omp\.sessions-share"/);
-    expect(installSrc).toMatch(/RUNTIME_DIR_NAME\s*=\s*"omp-sessions-share-runtime"/);
+    expect(installSrc).toMatch(
+      /RUNTIME_DIR_NAME\s*=\s*"omp-sessions-share-runtime"/,
+    );
+    expect(installSrc).toMatch(/path\.join\(PACKAGE_ROOT,\s*"package\.json"\)/);
+    expect(installSrc).toMatch(/path\.join\(staging,\s*"package\.json"\)/);
     // Launcher wraps pinned OMP CLI from dependency tree, not a global binary guess.
     expect(installSrc).toMatch(/@oh-my-pi\/pi-coding-agent/);
     expect(installSrc).toMatch(/src", "cli\.ts"/);
@@ -392,26 +478,43 @@ describe("packaged path resolution fixtures", () => {
     const outside = path.join(agent, "outside-home");
     process.env.HOME = outside;
     process.env.PI_CODING_AGENT_DIR = agent;
-    expect(getShareConfigPath()).toBe(path.join(agent, "omp-sessions-share.json"));
+    expect(getShareConfigPath()).toBe(
+      path.join(agent, "omp-sessions-share.json"),
+    );
     expect(getDashboardLocationsPath()).toBe(
       path.join(agent, "omp-sessions-share-locations.json"),
     );
-    expect(getDashboardDbPath()).toBe(path.join(agent, "omp-sessions-share.sqlite"));
+    expect(getDashboardDbPath()).toBe(
+      path.join(agent, "omp-sessions-share.sqlite"),
+    );
     expect(getShareConfigPath().startsWith(outside)).toBe(false);
     expect(getDashboardDbPath().startsWith(outside)).toBe(false);
   });
 
   test("uninstall removes share config, locations JSON, and sqlite sidecars", async () => {
-    const installSrc = await readFile(path.join(ROOT, "setup/install.ts"), "utf8");
+    const installSrc = await readFile(
+      path.join(ROOT, "setup/install.ts"),
+      "utf8",
+    );
     // Recursive daemon/shared runtime copy stays package-local; uninstall must not rewrite it.
-    expect(installSrc).toMatch(/await cp\(src,\s*path\.join\(staging,\s*name\),\s*\{\s*recursive:\s*true\s*\}\)/);
+    expect(installSrc).toMatch(
+      /await cp\(src,\s*path\.join\(staging,\s*name\),\s*\{\s*recursive:\s*true\s*\}\)/,
+    );
     expect(installSrc).toMatch(/getDashboardDbPath/);
-    expect(installSrc).toMatch(/await rm\(getShareConfigPath\(\),\s*\{\s*force:\s*true\s*\}\)/);
-    expect(installSrc).toMatch(/await rm\(getDashboardLocationsPath\(\),\s*\{\s*force:\s*true\s*\}\)/);
+    expect(installSrc).toMatch(
+      /await rm\(getShareConfigPath\(\),\s*\{\s*force:\s*true\s*\}\)/,
+    );
+    expect(installSrc).toMatch(
+      /await rm\(getDashboardLocationsPath\(\),\s*\{\s*force:\s*true\s*\}\)/,
+    );
     expect(installSrc).toMatch(/const dbPath = getDashboardDbPath\(\)/);
     expect(installSrc).toMatch(/await rm\(dbPath,\s*\{\s*force:\s*true\s*\}\)/);
-    expect(installSrc).toMatch(/await rm\(`\$\{dbPath\}-wal`,\s*\{\s*force:\s*true\s*\}\)/);
-    expect(installSrc).toMatch(/await rm\(`\$\{dbPath\}-shm`,\s*\{\s*force:\s*true\s*\}\)/);
+    expect(installSrc).toMatch(
+      /await rm\(`\$\{dbPath\}-wal`,\s*\{\s*force:\s*true\s*\}\)/,
+    );
+    expect(installSrc).toMatch(
+      /await rm\(`\$\{dbPath\}-shm`,\s*\{\s*force:\s*true\s*\}\)/,
+    );
 
     const agent = await makeTemp("omp-share-uninstall-state-");
     process.env.PI_CODING_AGENT_DIR = agent;
@@ -419,7 +522,9 @@ describe("packaged path resolution fixtures", () => {
     const locations = getDashboardLocationsPath();
     const db = getDashboardDbPath();
     expect(cfg).toBe(path.join(agent, "omp-sessions-share.json"));
-    expect(locations).toBe(path.join(agent, "omp-sessions-share-locations.json"));
+    expect(locations).toBe(
+      path.join(agent, "omp-sessions-share-locations.json"),
+    );
     expect(db).toBe(path.join(agent, "omp-sessions-share.sqlite"));
     expect(`${db}-wal`).toBe(path.join(agent, "omp-sessions-share.sqlite-wal"));
     expect(`${db}-shm`).toBe(path.join(agent, "omp-sessions-share.sqlite-shm"));
