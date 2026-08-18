@@ -44,17 +44,28 @@ No Vercel, Redis, cloud database, or central service.
 ```bash
 oss help           # show every terminal command
 oss start          # start dashboard, print health, and follow API requests
-oss status         # show health checks and session counts
-oss open           # open the dashboard
-oss logs --follow  # follow sanitized API activity without starting it
 oss stop           # stop dashboard sharing without stopping OMP
+oss restart        # restart the dashboard daemon and Tailscale Serve
+oss status         # show URL, service state, health, and session counts
+oss open           # open the dashboard
+oss credentials    # print the dashboard URL and password
+oss logs --follow  # follow sanitized API activity without starting it
 ```
 
 `oss start` remains attached to display sanitized requests. Press Ctrl-C to stop the display; the dashboard continues running in the background.
 
-Start or resume OMP normally with `omp`. Dashboard lifecycle is not controlled from inside OMP; native `/collab` still displays the current live-session link.
+Start or resume OMP normally with `omp`. When the dashboard is running, each session starts native `/collab` automatically and appears under **Live**. Run `/collab` to display that session's current live link.
 
 On a tailnet-connected phone, open the dashboard URL and enter the password shown by `oss credentials`.
+
+From the dashboard:
+
+1. **Sessions** joins Live sessions, marks them inactive, resumes exact prior conversations from Recent, and forgets Recent entries.
+2. **Workspaces** starts blank sessions in remembered worktrees. Repository groups can create sibling linked worktrees; linked worktrees can be deleted when clean without deleting their branches.
+3. Repository worktrees show pull-request readiness. Applicable actions start focused OMP repair sessions for conflicts, failed checks, requested changes, or unresolved review comments; ready pull requests can be merged directly.
+4. **System** reports daemon, runtime, database, Tailscale, local-tool, and sleep-inhibitor health. Remediation remains terminal-driven.
+
+Marking a Live session inactive SIGTERMs its OMP process only when no other live dashboard session shares that process. It does not close the containing terminal or IDE. Resumable inactive sessions move to Recent; resuming opens the exact session in its original worktree. The browser never receives the host session JSONL path.
 
 Register a repository or directory before it has a live session:
 
