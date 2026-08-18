@@ -22,15 +22,14 @@ export default function DashboardPage() {
     hasLocations,
     isLoggingOut,
     isPending,
+    loaded,
     logOut,
     now,
     offline,
-    openingId,
     query,
     retry,
-    selected,
+    selectedSessionId,
     selectSession,
-    locations,
     setQuery,
     unauthorized,
   } = useSessionDashboard();
@@ -73,7 +72,7 @@ export default function DashboardPage() {
         </FailAlert>
       ) : null}
 
-      {locations !== undefined ? (
+      {loaded ? (
         !hasLocations ? (
           <NoSessions />
         ) : groups.length === 0 ? (
@@ -82,14 +81,14 @@ export default function DashboardPage() {
           <SessionGroups
             groups={groups}
             now={now}
-            openingId={openingId}
+            openingId={selectedSessionId}
             onSelect={selectSession}
           />
         )
       ) : null}
 
-      {selected ? (
-        <JoinSession session={selected} onDone={clearSelected} />
+      {selectedSessionId ? (
+        <JoinSession sessionId={selectedSessionId} onDone={clearSelected} />
       ) : null}
     </Page>
   );

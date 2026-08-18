@@ -23,7 +23,7 @@ export function DeleteWorktreeButton({
   group: SessionGroup;
   worktree: WorktreeGroup;
 }) {
-  const remove = useDeleteWorktree(group.path, group.name, worktree);
+  const { mutate: deleteWorktree, isPending: isDeleting } = useDeleteWorktree();
 
   return (
     <AlertDialog>
@@ -31,11 +31,11 @@ export function DeleteWorktreeButton({
         <TouchButton
           wide
           danger
-          disabled={remove.isPending}
+          disabled={isDeleting}
           aria-label={`Delete worktree ${worktree.name}`}
         >
-          <BusyIcon busy={remove.isPending} idle={<Trash2 aria-hidden />} />
-          {remove.isPending ? "Deleting…" : "Delete"}
+          <BusyIcon busy={isDeleting} idle={<Trash2 aria-hidden />} />
+          {isDeleting ? "Deleting…" : "Delete"}
         </TouchButton>
       </AlertDialogTrigger>
       <AlertDialogContent>
@@ -50,7 +50,9 @@ export function DeleteWorktreeButton({
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            onClick={() => remove.mutate()}
+            onClick={() =>
+              deleteWorktree({ groupPath: group.path, worktreePath: worktree.path })
+            }
           >
             Delete worktree
           </AlertDialogAction>

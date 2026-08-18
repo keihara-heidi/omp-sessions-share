@@ -1,7 +1,6 @@
 "use client";
 
 import { Folder, FolderGit2, Plus } from "lucide-react";
-import type { SessionSummary } from "@/lib/contracts";
 import type { SessionGroup, WorktreeGroup } from "@/app/components/group-sessions";
 import { tildify, WorktreeSessionLists } from "@/app/components/session-list";
 import { DeleteWorktreeButton } from "@/app/components/worktree-delete-button";
@@ -39,9 +38,11 @@ function PullRequestSection({
   worktree: WorktreeGroup;
   enabled: boolean;
 }) {
-  const status = usePullRequestStatus(worktree, enabled);
-  const launchTask = useLaunchPullRequestTask(worktree);
-  const merge = useMergePullRequest(worktree);
+  const status = usePullRequestStatus(worktree.path, enabled);
+  const { mutate: launchPullRequestTask, isPending: isLaunchingTask, variables: taskVariables } =
+    useLaunchPullRequestTask();
+  const { mutate: mergePullRequest, isPending: isMerging } =
+    useMergePullRequest();
 
   if (!enabled) return null;
   if (status.isPending) return <PrStatusSkeleton />;
@@ -57,11 +58,11 @@ function PullRequestSection({
   return (
     <PrStatusPanel
       pullRequest={status.data.pullRequest}
-      launching={launchTask.isPending}
-      busyAction={launchTask.isPending ? (launchTask.variables ?? null) : null}
-      onAction={(action) => launchTask.mutate(action)}
-      merging={merge.isPending}
-      onMerge={() => merge.mutate()}
+      launching={isLaunchingTask}
+      busyAction={isLaunchingTask ? (taskVariables?.action ?? null) : null}
+      onAction={(action) => launchPullRequestTask({ worktreePath: worktree.path, action })}
+      merging={isMerging}
+      onMerge={() => mergePullRequest(worktree.path)}
     />
   );
 }
@@ -76,7 +77,7 @@ function WorktreeSection({
   worktree: WorktreeGroup;
   now: number;
   openingId: string | null;
-  onSelect: (session: SessionSummary) => void;
+  onSelect: (sessionId: string) => void;
 }) {
   return (
     <WorktreeBlock label={`Worktree ${worktree.name}`}>
@@ -110,20 +111,20 @@ function CreateWorktreeButton({
   groupPath: string;
   groupName: string;
 }) {
-  const create = useCreateWorktree(groupPath, groupName);
+  const { mutate: createWorktree, isPending: isCreating } = useCreateWorktree();
 
   return (
     <TouchButton
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        create.mutate();
+        createWorktree(groupPath);
       }}
-      disabled={create.isPending}
+      disabled={isCreating}
       aria-label={`Create worktree for ${groupName}`}
     >
-      <BusyIcon busy={create.isPending} idle={<Plus aria-hidden />} />
-      {create.isPending ? "Creating…" : "New"}
+      <BusyIcon busy={isCreating} idle={<Plus aria-hidden />} />
+      {isCreating ? "Creating…" : "New"}
     </TouchButton>
   );
 }
@@ -137,7 +138,7 @@ export function SessionGroups({
   groups: SessionGroup[];
   now: number;
   openingId: string | null;
-  onSelect: (session: SessionSummary) => void;
+  onSelect: (sessionId: string) => void;
 }) {
   return (
     <GroupStack>

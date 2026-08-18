@@ -1,33 +1,45 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type {
   PullRequestAction,
-  RecentSessionSummary,
   SessionDashboard,
-  SessionSummary,
   WorktreePullRequestStatus,
 } from "@/lib/contracts";
 import { api, ApiError, postJson } from "./api";
-import { groupSessions, type WorktreeGroup } from "./group-sessions";
+import { groupSessions } from "./group-sessions";
 
-const SESSIONS_QUERY_KEY = ["sessions"] as const;
+const DASHBOARD_QUERY_KEY = ["sessions"] as const;
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function updateDashboard(
+  queryClient: QueryClient,
+  updater: (dashboard: SessionDashboard) => SessionDashboard,
+) {
+  queryClient.setQueryData<SessionDashboard>(DASHBOARD_QUERY_KEY, (dashboard) =>
+    dashboard ? updater(dashboard) : dashboard,
+  );
+}
+
 export function useSessionDashboard() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<SessionSummary | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   const dashboard = useQuery({
-    queryKey: SESSIONS_QUERY_KEY,
+    queryKey: DASHBOARD_QUERY_KEY,
     queryFn: () => api<SessionDashboard>("/api/dashboard"),
     refetchOnWindowFocus: true,
     retry: false,
@@ -35,13 +47,13 @@ export function useSessionDashboard() {
 
   useEffect(() => {
     const events = new EventSource("/api/events");
-    const updateDashboard = (event: MessageEvent<string>) => {
+    const onDashboard = (event: MessageEvent<string>) => {
       const { data } = JSON.parse(event.data) as { data: SessionDashboard };
-      queryClient.setQueryData(SESSIONS_QUERY_KEY, data);
+      queryClient.setQueryData(DASHBOARD_QUERY_KEY, data);
     };
-    events.addEventListener("dashboard", updateDashboard);
+    events.addEventListener("dashboard", onDashboard);
     return () => {
-      events.removeEventListener("dashboard", updateDashboard);
+      events.removeEventListener("dashboard", onDashboard);
       events.close();
     };
   }, [queryClient]);
@@ -69,14 +81,12 @@ export function useSessionDashboard() {
   }, [router, unauthorized]);
 
   return {
-    sessions: dashboard.data?.sessions,
-    locations: dashboard.data?.locations,
     groups,
     query,
-    selected,
-    openingId: selected?.id ?? null,
+    selectedSessionId,
     now: Date.now(),
     unauthorized,
+    loaded: dashboard.data !== undefined,
     isPending: dashboard.isPending,
     offline: dashboard.isError && dashboard.data !== undefined,
     failed: dashboard.isError && dashboard.data === undefined,
@@ -86,36 +96,42 @@ export function useSessionDashboard() {
         dashboard.data.recentSessions.length > 0),
     isLoggingOut: logout.isPending,
     setQuery,
-    clearQuery: useCallback(() => setQuery(""), []),
-    selectSession: useCallback((session: SessionSummary) => setSelected(session), []),
-    clearSelected: useCallback(() => setSelected(null), []),
-    retry: useCallback(() => void dashboard.refetch(), [dashboard]),
-    logOut: useCallback(() => logout.mutate(), [logout]),
+    clearQuery: () => setQuery(""),
+    selectSession: setSelectedSessionId,
+    clearSelected: () => setSelectedSessionId(null),
+    retry: () => void dashboard.refetch(),
+    logOut: () => logout.mutate(),
   };
 }
 
-export function useLaunchSession(worktree: WorktreeGroup) {
+export function useLaunchSession() {
   return useMutation({
-    mutationFn: (prompt?: string) =>
+    mutationFn: ({
+      worktreePath,
+      prompt,
+    }: {
+      worktreePath: string;
+      prompt?: string;
+    }) =>
       api<{ ok: true }>(
         "/api/sessions/launch",
         postJson({
-          worktreePath: worktree.path,
+          worktreePath,
           ...(prompt === undefined ? {} : { prompt }),
         }),
       ),
-    onSuccess: () => toast.success(`Started OMP in ${worktree.name}`),
+    onSuccess: () => toast.success("Started OMP session"),
     onError: (error) => toast.error(errorMessage(error, "Could not start session")),
   });
 }
 
 /** PR readiness for one worktree; only repository worktrees with a branch query. */
-export function usePullRequestStatus(worktree: WorktreeGroup, enabled: boolean) {
+export function usePullRequestStatus(worktreePath: string, enabled: boolean) {
   return useQuery({
-    queryKey: ["pull-request", worktree.path],
+    queryKey: ["pull-request", worktreePath],
     queryFn: () =>
       api<WorktreePullRequestStatus>(
-        `/api/worktrees/pr?path=${encodeURIComponent(worktree.path)}`,
+        `/api/worktrees/pr?path=${encodeURIComponent(worktreePath)}`,
       ),
     enabled,
     staleTime: 60_000,
@@ -124,12 +140,18 @@ export function usePullRequestStatus(worktree: WorktreeGroup, enabled: boolean) 
   });
 }
 
-export function useLaunchPullRequestTask(worktree: WorktreeGroup) {
+export function useLaunchPullRequestTask() {
   return useMutation({
-    mutationFn: (action: PullRequestAction) =>
+    mutationFn: ({
+      worktreePath,
+      action,
+    }: {
+      worktreePath: string;
+      action: PullRequestAction;
+    }) =>
       api<{ ok: true }>(
         "/api/worktrees/pr-task",
-        postJson({ worktreePath: worktree.path, action }),
+        postJson({ worktreePath, action }),
       ),
     onSuccess: () => toast.success("Started a PR repair session"),
     onError: (error) =>
@@ -137,16 +159,18 @@ export function useLaunchPullRequestTask(worktree: WorktreeGroup) {
   });
 }
 
-export function useMergePullRequest(worktree: WorktreeGroup) {
+export function useMergePullRequest() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (worktreePath: string) =>
       api<{ ok: true }>(
         "/api/worktrees/pr-merge",
-        postJson({ worktreePath: worktree.path }),
+        postJson({ worktreePath }),
       ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["pull-request", worktree.path] });
+    onSuccess: (_data, worktreePath) => {
+      void queryClient.invalidateQueries({
+        queryKey: ["pull-request", worktreePath],
+      });
       toast.success("Merged pull request");
     },
     onError: (error) =>
@@ -154,83 +178,77 @@ export function useMergePullRequest(worktree: WorktreeGroup) {
   });
 }
 
-export function useCreateWorktree(groupPath: string, groupName: string) {
+export function useCreateWorktree() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (groupPath: string) =>
       api<{ ok: true; path: string }>(
         "/api/sessions/worktrees",
         postJson({ groupPath }),
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
-      toast.success(`Created worktree for ${groupName}`);
+      void queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY });
+      toast.success("Created worktree");
     },
     onError: (error) => toast.error(errorMessage(error, "Could not create worktree")),
   });
 }
 
-export function useDeleteWorktree(
-  groupPath: string,
-  groupName: string,
-  worktree: WorktreeGroup,
-) {
+export function useDeleteWorktree() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: () =>
+    mutationFn: ({
+      groupPath,
+      worktreePath,
+    }: {
+      groupPath: string;
+      worktreePath: string;
+    }) =>
       api<{ ok: true }>("/api/sessions/worktrees", {
-        ...postJson({ groupPath, worktreePath: worktree.path }),
+        ...postJson({ groupPath, worktreePath }),
         method: "DELETE",
       }),
-    onSuccess: () => {
-      queryClient.setQueryData<SessionDashboard>(SESSIONS_QUERY_KEY, (dashboard) =>
-        dashboard
-          ? {
-              sessions: dashboard.sessions.filter(
-                (session) =>
-                  session.group.path !== groupPath ||
-                  session.worktree.path !== worktree.path,
-              ),
-              locations: dashboard.locations.filter(
-                (location) =>
-                  location.group.path !== groupPath ||
-                  location.worktree.path !== worktree.path,
-              ),
-              recentSessions: dashboard.recentSessions.filter(
-                (recent) =>
-                  recent.group.path !== groupPath ||
-                  recent.worktree.path !== worktree.path,
-              ),
-            }
-          : dashboard,
-      );
-      queryClient.removeQueries({ queryKey: ["pull-request", worktree.path] });
-      toast.success(`Deleted ${worktree.name} from ${groupName}`);
+    onSuccess: (_data, { groupPath, worktreePath }) => {
+      updateDashboard(queryClient, (dashboard) => ({
+        sessions: dashboard.sessions.filter(
+          (session) =>
+            session.group.path !== groupPath ||
+            session.worktree.path !== worktreePath,
+        ),
+        locations: dashboard.locations.filter(
+          (location) =>
+            location.group.path !== groupPath ||
+            location.worktree.path !== worktreePath,
+        ),
+        recentSessions: dashboard.recentSessions.filter(
+          (recent) =>
+            recent.group.path !== groupPath ||
+            recent.worktree.path !== worktreePath,
+        ),
+      }));
+      queryClient.removeQueries({ queryKey: ["pull-request", worktreePath] });
+      toast.success("Deleted worktree");
     },
     onError: (error) =>
       toast.error(errorMessage(error, "Could not delete worktree")),
   });
 }
 
-export function useDeactivateSession(session: SessionSummary) {
+export function useDeactivateSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (sessionId: string) =>
       api<{ ok: true }>(
-        `/api/sessions/${encodeURIComponent(session.id)}/deactivate`,
+        `/api/sessions/${encodeURIComponent(sessionId)}/deactivate`,
         { method: "POST" },
       ),
-    onSuccess: () => {
-      queryClient.setQueryData<SessionDashboard>(SESSIONS_QUERY_KEY, (dashboard) =>
-        dashboard
-          ? {
-              ...dashboard,
-              sessions: dashboard.sessions.filter((item) => item.id !== session.id),
-            }
-          : dashboard,
-      );
+    onSuccess: (_data, sessionId) => {
+      updateDashboard(queryClient, (dashboard) => ({
+        ...dashboard,
+        sessions: dashboard.sessions.filter((item) => item.id !== sessionId),
+      }));
       toast.success("Session removed");
     },
     onError: (error) => toast.error(errorMessage(error, "Could not remove session")),
@@ -239,18 +257,18 @@ export function useDeactivateSession(session: SessionSummary) {
 
 /** Resume a remembered session in its original worktree; the dashboard SSE
  * stream moves it into Live once the daemon reports it — no optimistic move. */
-export function useResumeRecentSession(recent: RecentSessionSummary) {
+export function useResumeRecentSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (resumeId: string) =>
       api<{ ok: true }>(
-        `/api/recent-sessions/${encodeURIComponent(recent.id)}/resume`,
+        `/api/recent-sessions/${encodeURIComponent(resumeId)}/resume`,
         { method: "POST" },
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
-      toast.success(`Resuming ${recent.title}`);
+      void queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY });
+      toast.success("Resuming session");
     },
     onError: (error) =>
       toast.error(errorMessage(error, "Could not resume session")),

@@ -80,22 +80,23 @@ export function SessionButton({
   session: SessionSummary;
   now: number;
   openingId: string | null;
-  onSelect: (session: SessionSummary) => void;
+  onSelect: (sessionId: string) => void;
 }) {
   const stale = now - Date.parse(session.lastSeenAt) > 15_000;
   const opening = openingId === session.id;
-  const deactivate = useDeactivateSession(session);
+  const { mutate: deactivateSession, isPending: isDeactivating } =
+    useDeactivateSession();
 
   return (
     <SessionCard
       presence={stale ? "stale" : "live"}
-      disabled={openingId !== null || deactivate.isPending}
+      disabled={openingId !== null || isDeactivating}
       busy={opening}
-      onSelect={() => onSelect(session)}
+      onSelect={() => onSelect(session.id)}
       removal={{
-        onRemove: () => deactivate.mutate(),
+        onRemove: () => deactivateSession(session.id),
         label: `Remove ${session.title} from active sessions`,
-        removing: deactivate.isPending,
+        removing: isDeactivating,
       }}
       title={session.title}
       path={tildify(session.cwd)}
@@ -116,14 +117,15 @@ export function RecentSessionButton({
   now: number;
   openingId: string | null;
 }) {
-  const resume = useResumeRecentSession(recent);
+  const { mutate: resumeSession, isPending: isResuming } =
+    useResumeRecentSession();
 
   return (
     <SessionCard
       presence="recent"
-      disabled={openingId !== null || resume.isPending}
-      busy={resume.isPending}
-      onSelect={() => resume.mutate()}
+      disabled={openingId !== null || isResuming}
+      busy={isResuming}
+      onSelect={() => resumeSession(recent.id)}
       actionLabel="Resume"
       busyLabel="Resuming…"
       title={recent.title}
@@ -153,7 +155,7 @@ export function WorktreeSessionLists({
   worktree: WorktreeGroup;
   now: number;
   openingId: string | null;
-  onSelect: (session: SessionSummary) => void;
+  onSelect: (sessionId: string) => void;
 }) {
   return (
     <>
