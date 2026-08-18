@@ -332,18 +332,15 @@ export function parseHostSessionHeartbeat(
   };
 }
 
-/** Browser request to start a local OMP session in a live worktree. */
-export type LaunchSessionInput = { worktreePath: string; prompt?: string };
+/** Browser request to start a blank local OMP session in a live worktree. */
+export type LaunchSessionInput = { worktreePath: string };
 
 export function parseLaunchSessionInput(v: unknown): LaunchSessionInput | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
-  const { worktreePath, prompt } = v as Record<string, unknown>;
-  if (!isNonEmptyString(worktreePath, 1024)) return null;
-  if (prompt === undefined || (typeof prompt === "string" && prompt.trim() === "")) {
-    return { worktreePath };
-  }
-  return typeof prompt === "string" && prompt.length <= 16_384
-    ? { worktreePath, prompt }
+  const record = v as Record<string, unknown>;
+  if (Object.hasOwn(record, "prompt")) return null;
+  return isNonEmptyString(record.worktreePath, 1024)
+    ? { worktreePath: record.worktreePath }
     : null;
 }
 

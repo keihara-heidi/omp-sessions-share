@@ -1249,67 +1249,11 @@ describe("pull request readiness and repair launch", () => {
     ]);
   });
 
-  test("session launch forwards a multiline prompt unchanged", async () => {
+  test("session launch rejects removed prompt input", async () => {
     const session = upsertSession({
-      id: "launch_with_prompt",
+      id: "launch_removed_prompt",
       title: "Existing session",
-      cwd: "/tmp/phone-launch-prompted",
-      startedAt: "2026-08-12T00:00:00.000Z",
-    });
-    const cookie = await loginCookie();
-    const prompt = "Fix both failures\n\nThen run:\n  bun test";
-    const calls: Array<{ path: string; prompt?: string }> = [];
-    const res = await handleApi(
-      jsonRequest(
-        "http://local/api/sessions/launch",
-        { worktreePath: session.worktree.path, prompt },
-        { cookie },
-      ),
-      config,
-      "/api/sessions/launch",
-      async (path, init) => {
-        calls.push({
-          path,
-          prompt: typeof init === "string" ? init : init?.prompt,
-        });
-      },
-    );
-
-    expect(res?.status).toBe(200);
-    expect(calls).toEqual([{ path: session.worktree.path, prompt }]);
-  });
-
-  test("session launch treats whitespace-only prompts as absent", async () => {
-    const session = upsertSession({
-      id: "launch_whitespace_prompt",
-      title: "Existing session",
-      cwd: "/tmp/phone-launch-whitespace",
-      startedAt: "2026-08-12T00:00:00.000Z",
-    });
-    const cookie = await loginCookie();
-    const prompts: Array<string | undefined> = [];
-    const res = await handleApi(
-      jsonRequest(
-        "http://local/api/sessions/launch",
-        { worktreePath: session.worktree.path, prompt: " \n\t " },
-        { cookie },
-      ),
-      config,
-      "/api/sessions/launch",
-      async (_path, init) => {
-        prompts.push(typeof init === "string" ? init : init?.prompt);
-      },
-    );
-
-    expect(res?.status).toBe(200);
-    expect(prompts).toEqual([undefined]);
-  });
-
-  test("session launch rejects non-string prompts", async () => {
-    const session = upsertSession({
-      id: "launch_invalid_prompt",
-      title: "Existing session",
-      cwd: "/tmp/phone-launch-invalid",
+      cwd: "/tmp/phone-launch-prompt-removed",
       startedAt: "2026-08-12T00:00:00.000Z",
     });
     const cookie = await loginCookie();
@@ -1317,7 +1261,7 @@ describe("pull request readiness and repair launch", () => {
     const res = await handleApi(
       jsonRequest(
         "http://local/api/sessions/launch",
-        { worktreePath: session.worktree.path, prompt: ["not", "a string"] },
+        { worktreePath: session.worktree.path, prompt: "removed" },
         { cookie },
       ),
       config,

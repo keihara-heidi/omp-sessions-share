@@ -243,20 +243,12 @@ describe("contracts validators", () => {
     expect(isEncryptedLink({ algorithm: "none", ciphertext })).toBe(false);
   });
 
-  test("parses optional launch prompts without changing content", () => {
-    const prompt = "Fix the failing test\n\nKeep this indentation:\n  exact";
+  test("parses blank session launches and rejects removed prompt input", () => {
     expect(parseLaunchSessionInput({ worktreePath: "/tmp/repo" })).toEqual({
       worktreePath: "/tmp/repo",
     });
-    expect(parseLaunchSessionInput({ worktreePath: "/tmp/repo", prompt })).toEqual({
-      worktreePath: "/tmp/repo",
-      prompt,
-    });
     expect(
-      parseLaunchSessionInput({ worktreePath: "/tmp/repo", prompt: " \n\t " }),
-    ).toEqual({ worktreePath: "/tmp/repo" });
-    expect(
-      parseLaunchSessionInput({ worktreePath: "/tmp/repo", prompt: 42 }),
+      parseLaunchSessionInput({ worktreePath: "/tmp/repo", prompt: "removed" }),
     ).toBeNull();
   });
 
