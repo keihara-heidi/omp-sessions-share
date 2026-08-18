@@ -102,6 +102,32 @@ export type SystemHealth = {
   checks: HealthCheck[];
 };
 
+export type PluginUpdateStatus = {
+  currentVersion: string;
+  latestVersion: string;
+  commit: string;
+  updateAvailable: boolean;
+};
+
+export function parsePluginUpdateStatus(v: unknown): PluginUpdateStatus | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.currentVersion !== "string" || o.currentVersion.length > 64)
+    return null;
+  if (typeof o.latestVersion !== "string" || o.latestVersion.length > 64)
+    return null;
+  if (typeof o.commit !== "string" || !/^[0-9a-f]{40}$/.test(o.commit))
+    return null;
+  if (typeof o.updateAvailable !== "boolean") return null;
+  if (o.updateAvailable !== (o.currentVersion !== o.latestVersion)) return null;
+  return {
+    currentVersion: o.currentVersion,
+    latestVersion: o.latestVersion,
+    commit: o.commit,
+    updateAvailable: o.updateAvailable,
+  };
+}
+
 export const HEALTH_CHECK_IDS = [
   "daemon",
   "runtime-version",

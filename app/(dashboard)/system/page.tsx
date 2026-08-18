@@ -1,7 +1,11 @@
 "use client";
 
 import { SystemHealthReport } from "@/app/components/system-health-report";
-import { useSystemHealth } from "@/app/components/use-system-health";
+import {
+  useCheckPluginUpdate,
+  useSystemHealth,
+  useUpdatePlugin,
+} from "@/app/components/use-system-health";
 import { FailAlert, WarnAlert } from "@/components/ds/feedback";
 import { Page } from "@/components/ds/page";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +35,13 @@ function HealthSkeletons() {
 export default function SystemPage() {
   const { data, failed, isFetching, isPending, offline, retry, unauthorized } =
     useSystemHealth();
+  const {
+    data: updateStatus,
+    mutate: checkPluginUpdate,
+    isPending: isCheckingPluginUpdate,
+  } = useCheckPluginUpdate();
+  const { mutate: updatePlugin, isPending: isUpdatingPlugin } =
+    useUpdatePlugin();
 
   if (unauthorized) return null;
 
@@ -59,6 +70,13 @@ export default function SystemPage() {
           health={data}
           isFetching={isFetching}
           onRefresh={retry}
+          updateStatus={updateStatus}
+          isCheckingUpdate={isCheckingPluginUpdate}
+          isUpdating={isUpdatingPlugin}
+          onCheckForUpdate={() => checkPluginUpdate()}
+          onUpdate={() => {
+            if (updateStatus) updatePlugin(updateStatus.commit);
+          }}
         />
       ) : null}
     </Page>

@@ -7,12 +7,17 @@
 import { access, constants, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { PluginManager } from "@oh-my-pi/pi-coding-agent/extensibility/plugins";
 import { parseSystemHealth, type SystemHealth } from "../lib/contracts";
 import {
   getInstalledPluginPackagePath,
   loadShareConfig,
   type ShareConfig,
 } from "../shared/config";
+import {
+  parseMainCommit,
+  resolveLatestMainCommit,
+} from "../daemon/plugin-update";
 import {
   isLocalShareServerRunning,
   setupLocalRuntime,
@@ -21,14 +26,9 @@ import {
   uninstallLocalRuntime,
 } from "./install";
 
-const PLUGIN_GITHUB_REPO = "https://github.com/keihara-heidi/omp-sessions-share.git";
 const PLUGIN_GITHUB_SOURCE = "github:keihara-heidi/omp-sessions-share";
 
-export function parseMainCommit(output: string): string | null {
-  return (
-    output.trim().match(/^([0-9a-f]{40})\s+refs\/heads\/main$/)?.[1] ?? null
-  );
-}
+export { parseMainCommit };
 
 export const EXIT_OK = 0;
 export const EXIT_RUNTIME = 1;
@@ -46,7 +46,7 @@ export type CliCommand =
   | { name: "register"; path?: string }
   | { name: "credentials" }
   | { name: "logs"; follow: boolean }
-  | { name: "update" }
+  | { name: "update"; commit?: string }
   | { name: "uninstall" };
 
 export type ParseResult =
@@ -141,7 +141,6 @@ export function parseCliArgs(argv: readonly string[]): ParseResult {
     case "status":
     case "open":
     case "credentials":
-    case "update":
     case "uninstall":
       if (args.length > 1) {
         return {
@@ -151,6 +150,21 @@ export function parseCliArgs(argv: readonly string[]): ParseResult {
         };
       }
       return { ok: true, command: { name: cmd } };
+    case "update": {
+      if (args.length === 1) return { ok: true, command: { name: "update" } };
+      if (
+        args.length === 3 &&
+        args[1] === "--commit" &&
+        /^[0-9a-f]{40}$/.test(args[2] ?? "")
+      ) {
+        return { ok: true, command: { name: "update", commit: args[2] } };
+      }
+      return {
+        ok: false,
+        error: "Unexpected arguments for update. Use: oss update",
+        exitCode: EXIT_USAGE,
+      };
+    }
     case "register": {
       if (args.length > 2) {
         return {
@@ -492,43 +506,27 @@ async function resolveInstalledSetupEntry(): Promise<string> {
   return entry;
 }
 
-async function cmdUpdate(): Promise<void> {
-  const remote = Bun.spawnSync(
-    ["git", "ls-remote", PLUGIN_GITHUB_REPO, "refs/heads/main"],
-    { stdout: "pipe", stderr: "pipe", stdin: "ignore" },
-  );
-  const commit =
-    remote.exitCode === 0 ? parseMainCommit(remote.stdout.toString()) : null;
+async function cmdUpdate(requestedCommit?: string): Promise<void> {
+  let commit = requestedCommit;
   if (!commit) {
-    const detail = remote.stderr.toString().trim();
-    fail(
-      `update failed: could not resolve latest main commit${detail ? `: ${detail}` : ""}`,
-    );
+    try {
+      commit = await resolveLatestMainCommit();
+    } catch (err) {
+      fail(`update failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
-  const ompLauncher = path.join(homedir(), ".local", "bin", "omp");
-  const upgrade = Bun.spawnSync(
-    [
-      ompLauncher,
-      "plugin",
-      "install",
-      `${PLUGIN_GITHUB_SOURCE}#${commit}`,
-      "--force",
-    ],
-    {
-      stdout: "inherit",
-      stderr: "inherit",
-      stdin: "inherit",
-    },
-  );
-  if (upgrade.exitCode !== 0) {
+  try {
+    const manager = new PluginManager();
+    await manager.install(`${PLUGIN_GITHUB_SOURCE}#${commit}`, { force: true });
+  } catch (err) {
     fail(
-      `update failed: omp plugin install exited ${upgrade.exitCode ?? "unknown"}`,
+      `update failed: plugin install failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
   const setupEntry = await resolveInstalledSetupEntry();
-  const setup = Bun.spawnSync(["bun", setupEntry, "setup"], {
+  const setup = Bun.spawnSync([process.execPath, setupEntry, "setup"], {
     stdout: "inherit",
     stderr: "inherit",
     stdin: "inherit",
@@ -539,7 +537,7 @@ async function cmdUpdate(): Promise<void> {
     );
   }
   console.log(
-    "omp-sessions-share update complete. Local config and database preserved.",
+    `omp-sessions-share updated to ${commit}. Local config and database preserved.`,
   );
 }
 
@@ -593,7 +591,7 @@ export async function runCli(argv: readonly string[] = process.argv): Promise<vo
       await cmdLogs(parsed.command.follow);
       return;
     case "update":
-      await cmdUpdate();
+      await cmdUpdate(parsed.command.commit);
       return;
     case "uninstall":
       await cmdUninstall();

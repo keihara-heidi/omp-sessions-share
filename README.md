@@ -89,6 +89,7 @@ System (/system/)
 ├── Core
 ├── Connectivity
 ├── Tools
+├── Plugin update
 └── Power
 ```
 
@@ -96,7 +97,7 @@ Each page has typo-tolerant search using the same grouping rules. Sessions searc
 
 Dashboard session and location changes arrive as complete snapshots through one authenticated live event stream; no polling or phone reload is needed. EventSource reconnects automatically and receives a fresh snapshot.
 
-System health is fetched independently and cached briefly by the daemon. **Refresh** requests a new snapshot without adding another dashboard event stream. Individual checks fail independently, so available diagnostics remain visible when one local dependency cannot be inspected.
+System health is fetched independently and cached briefly by the daemon. **Refresh** requests a new snapshot without adding another dashboard event stream. Individual checks fail independently, so available diagnostics remain visible when one local dependency cannot be inspected. **Check for updates** compares the installed version with an exact `main` commit; **Update** hands that commit to `oss` and briefly restarts only the dashboard daemon.
 
 Workspace groups start collapsed. Workspace launching remains limited to worktrees advertised by the dashboard’s remembered locations; the Sessions-page New session action instead launches an ad-hoc home-directory session without registering that directory as a Workspace.
 
@@ -116,7 +117,7 @@ Setup is idempotent, retains existing secrets, and also repairs a missing `oss` 
 oss update
 ```
 
-Update resolves the exact latest commit on `main`, reinstalls the plugin, and reruns idempotent setup so the copied daemon runtime and launchers match it. Existing configuration, secrets, registered workspaces, Recent sessions, and the SQLite database are preserved.
+Update resolves the exact latest commit on `main`, reinstalls the plugin through OMP's package manager library without launching OMP, and reruns idempotent setup so the copied daemon runtime and launchers match it. Existing configuration, secrets, registered workspaces, Recent sessions, and the SQLite database are preserved.
 
 ## Uninstall
 
