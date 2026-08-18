@@ -475,9 +475,14 @@ describe("packaged path resolution fixtures", () => {
     expect(installSrc).toMatch(/\.local", "bin"/);
     expect(installSrc).toMatch(/omp-share/);
     expect(installSrc).toMatch(/path\.join\(userBinDir,\s*"oss"\)/);
+    expect(installSrc).toMatch(/getInstalledPluginPackagePath\(\)/);
     expect(installSrc).toMatch(
       /removeOwnedLauncher\(path\.join\(home,\s*"\.local",\s*"bin",\s*"oss"\)\)/,
     );
+    expect(installSrc).toMatch(
+      /if \(!\(await pathExists\(ompPath\)\) \|\| \(await isOwnedLauncher\(ompPath\)\)\)/,
+    );
+    expect(installSrc).not.toContain("Refusing to overwrite existing");
   });
 
   test("getShareConfigPath honors temp agent dir without touching ~/.omp", async () => {

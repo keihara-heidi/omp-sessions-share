@@ -21,6 +21,7 @@ import {
   getDashboardDbPath,
   getDashboardLocationsPath,
   getShareConfigPath,
+  getInstalledPluginPackagePath,
   loadShareConfig,
   writeShareConfig,
 } from "../shared/config";
@@ -602,20 +603,25 @@ async function installLauncherAndAlias(): Promise<void> {
   const sharePath = path.join(userBinDir, "omp-share");
   const ompPath = path.join(userBinDir, "omp");
 
-  await writeOwnedLauncher(ossPath, path.join(PACKAGE_ROOT, "setup", "cli.ts"));
+  const installedSetupCli = path.join(
+    path.dirname(getInstalledPluginPackagePath()),
+    "setup",
+    "cli.ts",
+  );
+  await writeOwnedLauncher(
+    ossPath,
+    (await pathExists(installedSetupCli))
+      ? installedSetupCli
+      : path.join(PACKAGE_ROOT, "setup", "cli.ts"),
+  );
 
   // omp-share is always ours; rewrite freely.
   await writeOwnedLauncher(sharePath, sourceCli);
 
-  // Never clobber a third-party ~/.local/bin/omp.
-  if (await pathExists(ompPath)) {
-    if (!(await isOwnedLauncher(ompPath))) {
-      throw new Error(
-        `Refusing to overwrite existing ${ompPath} (not an omp-sessions-share launcher). Move it aside and re-run setup.`,
-      );
-    }
+  // Preserve an independently installed OMP; only create or refresh our own.
+  if (!(await pathExists(ompPath)) || (await isOwnedLauncher(ompPath))) {
+    await writeOwnedLauncher(ompPath, sourceCli);
   }
-  await writeOwnedLauncher(ompPath, sourceCli);
 
   const zshrcPath = path.join(home, ".zshrc");
   let zshrc = "";

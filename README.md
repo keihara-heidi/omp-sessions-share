@@ -15,11 +15,11 @@ OMP-only: upstream Pi does not provide `/collab`.
 
 ```bash
 omp plugin install github:keihara-heidi/omp-sessions-share
-bun ~/.omp/plugins/node_modules/omp-sessions-share/setup/cli.ts setup
+bun x github:keihara-heidi/omp-sessions-share setup
 oss start
 ```
 
-The one-time `bun` command performs initial setup and installs `oss` in `~/.local/bin`; lifecycle commands use `oss` afterward.
+The one-time `bun x` command performs initial setup and installs `oss` in `~/.local/bin`; lifecycle commands use `oss` afterward.
 
 Then start OMP normally. Each interactive session automatically starts native `/collab` and registers with the running dashboard.
 
@@ -30,7 +30,7 @@ Setup creates:
 - one Tailscale Serve endpoint on HTTPS port `8443`
 - one private config at `~/.omp/agent/omp-sessions-share.json` with mode `0600`
 - one private dashboard SQLite database at `~/.omp/agent/omp-sessions-share.sqlite` with mode `0600` and WAL (`-wal` / `-shm` sidecars also `0600`)
-- PATH-first launchers at `~/.local/bin/oss`, `~/.local/bin/omp`, and `~/.local/bin/omp-share`
+- PATH-first launchers at `~/.local/bin/oss` and `~/.local/bin/omp-share`; setup creates `~/.local/bin/omp` only when that path is absent or already managed by this plugin
 
 If `~/.omp/agent/omp-sessions-share-locations.json` already exists, it is imported once into SQLite and left on disk unchanged so you can roll back.
 
@@ -105,7 +105,7 @@ The browser receives the collab link encrypted to a non-extractable RSA key gene
 ## Repair setup
 
 ```bash
-bun ~/.omp/plugins/node_modules/omp-sessions-share/setup/cli.ts setup
+bun x github:keihara-heidi/omp-sessions-share setup
 ```
 
 Setup is idempotent, retains existing secrets, and also repairs a missing `oss` launcher.
