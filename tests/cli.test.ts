@@ -71,6 +71,11 @@ describe("cli parse/dispatch", () => {
       ok: true,
       command: { name: "update" },
     });
+    const sha = "a".repeat(40);
+    expect(parseCliArgs(argv("update", "--commit", sha))).toEqual({
+      ok: true,
+      command: { name: "update", commit: sha },
+    });
     expect(parseCliArgs(argv("uninstall"))).toEqual({
       ok: true,
       command: { name: "uninstall" },
@@ -102,6 +107,7 @@ describe("cli parse/dispatch", () => {
     expect(parseCliArgs(argv("status", "--json")).ok).toBe(false);
     expect(parseCliArgs(argv("logs", "--all")).ok).toBe(false);
     expect(parseCliArgs(argv("register", "a", "b")).ok).toBe(false);
+    expect(parseCliArgs(argv("update", "--commit", "main")).ok).toBe(false);
     expect(parseCliArgs(argv("--password=nope"))).toMatchObject({
       ok: false,
       exitCode: EXIT_USAGE,
@@ -147,16 +153,17 @@ describe("data-safe update", () => {
     expect(parseMainCommit("not-a-commit\trefs/heads/main\n")).toBeNull();
   });
 
-  test("reinstalls and runs setup without invoking local cleanup", async () => {
+  test("installs through the plugin manager without launching OMP", async () => {
     const source = await readFile(CLI, "utf8");
     const update = source.slice(
       source.indexOf("async function cmdUpdate"),
       source.indexOf("async function cmdUninstall"),
     );
-    expect(update).toContain('"git", "ls-remote"');
-    expect(update).toContain('"plugin",\n      "install"');
-    expect(update).toContain('path.join(homedir(), ".local", "bin", "omp")');
+    expect(update).toContain("new PluginManager()");
     expect(update).toContain("resolveInstalledSetupEntry()");
+    expect(update).toContain("process.execPath");
+    expect(update).not.toContain("ompLauncher");
+    expect(update).not.toContain('"plugin", "install"');
     expect(update).not.toContain("uninstallLocalRuntime");
     expect(update).not.toContain("getDashboardDbPath");
   });

@@ -27,6 +27,7 @@ import {
   subscribeSessionChanges,
 } from "./store";
 import { createSystemHealthService } from "./system-health";
+import { createPluginUpdateService } from "./plugin-update";
 
 /** Pathname only — never query, body, headers, or secrets. */
 export function formatAccessLogLine(input: {
@@ -80,8 +81,11 @@ async function main(): Promise<void> {
     isSleepInhibitorActive: () => sleepInhibitor.active,
     isSleepInhibitorRequired: () => listSessions().length > 0,
   });
+  const pluginUpdate = createPluginUpdateService();
   const apiDeps = {
-    getSystemHealth: () => systemHealth.getHealth(),
+    getSystemHealth: systemHealth.getHealth,
+    checkPluginUpdate: pluginUpdate.check,
+    startPluginUpdate: pluginUpdate.start,
   };
 
   const server = Bun.serve<SocketData>({

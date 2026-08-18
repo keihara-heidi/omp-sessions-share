@@ -6,12 +6,14 @@ import {
   HEALTH_CHECK_IDS,
   overallHealthLevel,
   parseSystemHealth,
+  parsePluginUpdateStatus,
   type HealthCheck,
   type HealthCheckId,
   type HealthLevel,
   type SystemHealth,
 } from "../lib/contracts";
 import { createSystemHealthService } from "../daemon/system-health";
+import { createPluginUpdateService } from "../daemon/plugin-update";
 
 const tempDirs: string[] = [];
 
@@ -241,4 +243,49 @@ describe("system health collection", () => {
     expect(serialized).not.toContain("private stdout");
     expect(serialized).not.toContain("/private/path");
   }, 6_000);
+});
+
+describe("plugin updates", () => {
+  test("checks the pinned main commit against the installed version", async () => {
+    const dir = makeTemp("omp-update-");
+    const installed = join(dir, "package.json");
+    const commit = "a".repeat(40);
+    writeFileSync(
+      installed,
+      JSON.stringify({ name: "omp-sessions-share", version: "0.9.1" }),
+    );
+    const service = createPluginUpdateService({
+      installedPackagePath: installed,
+      resolveCommit: async () => commit,
+      fetchPackage: async () => ({
+        name: "omp-sessions-share",
+        version: "0.10.0",
+      }),
+    });
+
+    const status = await service.check();
+    expect(status).toEqual({
+      currentVersion: "0.9.1",
+      latestVersion: "0.10.0",
+      commit,
+      updateAvailable: true,
+    });
+    expect(parsePluginUpdateStatus(status)).toEqual(status);
+    expect(
+      parsePluginUpdateStatus({ ...status, updateAvailable: false }),
+    ).toBeNull();
+  });
+
+  test("schedules one exact commit and rejects invalid or duplicate starts", () => {
+    const scheduled: string[] = [];
+    const service = createPluginUpdateService({
+      schedule: (commit) => scheduled.push(commit),
+    });
+    const commit = "b".repeat(40);
+
+    expect(() => service.start("main")).toThrow("Invalid update commit");
+    service.start(commit);
+    expect(scheduled).toEqual([commit]);
+    expect(() => service.start(commit)).toThrow("Update already started");
+  });
 });

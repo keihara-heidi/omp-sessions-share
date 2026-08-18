@@ -40,6 +40,7 @@ import {
   type DashboardLocation,
   type PullRequestAction,
   type SystemHealth,
+  type PluginUpdateStatus,
   type WorktreePullRequestStatus,
   isJsonContentType,
   isNonEmptyString,
@@ -422,6 +423,8 @@ type ApiDeps = {
   ) => boolean;
   mergePullRequest?: (status: WorktreePullRequestStatus) => Promise<void>;
   getSystemHealth?: () => Promise<SystemHealth>;
+  checkPluginUpdate?: () => Promise<PluginUpdateStatus>;
+  startPluginUpdate?: (commit: string) => void;
 };
 
 function normalizeLaunchInit(init?: LaunchOmpInit): {
@@ -1063,6 +1066,55 @@ async function handleSystemHealth(
   }
 }
 
+async function handlePluginUpdateCheck(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!deps.checkPluginUpdate) return err("Service unavailable", 503);
+  try {
+    return jsonOk(await deps.checkPluginUpdate(), {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch {
+    return err("Could not check for updates", 503);
+  }
+}
+
+async function handlePluginUpdate(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!deps.startPluginUpdate) return err("Service unavailable", 503);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const body = parsedBody.value;
+  const commit =
+    body !== null && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>).commit
+      : undefined;
+  if (typeof commit !== "string" || !/^[0-9a-f]{40}$/.test(commit)) {
+    return err("Invalid update commit", 400);
+  }
+  try {
+    deps.startPluginUpdate(commit);
+    return jsonOk(
+      { ok: true },
+      { status: 202, headers: { "Cache-Control": "no-store" } },
+    );
+  } catch {
+    return err("Could not start update", 503);
+  }
+}
+
 /** Host-authenticated health for terminal `status` — never dashboard-cookie gated. */
 async function handleHostSystemHealth(
   req: Request,
@@ -1119,6 +1171,12 @@ export async function handleApi(
   }
   if (pathname === "/api/system/health" && method === "GET") {
     return handleSystemHealth(req, config, deps);
+  }
+  if (pathname === "/api/system/update/check" && method === "POST") {
+    return handlePluginUpdateCheck(req, config, deps);
+  }
+  if (pathname === "/api/system/update" && method === "POST") {
+    return handlePluginUpdate(req, config, deps);
   }
   if (pathname === "/api/sessions/launch" && method === "POST") {
     return handleLaunchSession(req, config, launchOmp);

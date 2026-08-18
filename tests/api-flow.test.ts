@@ -266,6 +266,70 @@ describe("local daemon auth gates", () => {
     expect(await failed?.json()).toEqual({ error: "Service unavailable" });
   });
 
+  test("plugin update check and start require dashboard auth and pin the commit", async () => {
+    const commit = "c".repeat(40);
+    const status = {
+      currentVersion: "0.9.1",
+      latestVersion: "0.10.0",
+      commit,
+      updateAvailable: true,
+    };
+    const started: string[] = [];
+    const deps = {
+      checkPluginUpdate: async () => status,
+      startPluginUpdate: (requested: string) => started.push(requested),
+    };
+
+    const unauthorized = await handleApi(
+      new Request("http://local/api/system/update/check", { method: "POST" }),
+      config,
+      "/api/system/update/check",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(unauthorized?.status).toBe(401);
+
+    const cookie = await loginCookie();
+    const checked = await handleApi(
+      new Request("http://local/api/system/update/check", {
+        method: "POST",
+        headers: { cookie },
+      }),
+      config,
+      "/api/system/update/check",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(checked?.status).toBe(200);
+    expect(checked?.headers.get("cache-control")).toBe("no-store");
+    expect(await checked?.json()).toEqual({ data: status });
+
+    const invalid = await handleApi(
+      jsonRequest("http://local/api/system/update", { commit: "main" }, { cookie }),
+      config,
+      "/api/system/update",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(invalid?.status).toBe(400);
+    expect(started).toEqual([]);
+
+    const accepted = await handleApi(
+      jsonRequest("http://local/api/system/update", { commit }, { cookie }),
+      config,
+      "/api/system/update",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(accepted?.status).toBe(202);
+    expect(accepted?.headers.get("cache-control")).toBe("no-store");
+    expect(started).toEqual([commit]);
+  });
+
   test("host system health requires Bearer and preserves dashboard cookie gate", async () => {
     let calls = 0;
     const deps = {

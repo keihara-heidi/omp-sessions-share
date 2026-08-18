@@ -1,10 +1,5 @@
-import {
-  CircleCheck,
-  CircleHelp,
-  CircleX,
-  RefreshCw,
-  TriangleAlert,
-} from "lucide-react";
+import { CircleCheck, CircleHelp, CircleX, RefreshCw, TriangleAlert } from "lucide-react";
+import { PluginUpdateCard } from "@/app/components/plugin-update-card";
 import { Badge, type BadgeVariant } from "@/components/ds/badge";
 import { BusyIcon } from "@/components/ds/session";
 import { Button } from "@/components/ui/button";
@@ -21,6 +16,7 @@ import type {
   HealthCheckId,
   HealthLevel,
   SystemHealth,
+  PluginUpdateStatus,
 } from "@/lib/contracts";
 
 const LEVEL_META: Record<
@@ -117,10 +113,20 @@ export function SystemHealthReport({
   health,
   isFetching,
   onRefresh,
+  updateStatus,
+  isCheckingUpdate,
+  isUpdating,
+  onCheckForUpdate,
+  onUpdate,
 }: {
   health: SystemHealth;
   isFetching: boolean;
   onRefresh: () => void;
+  updateStatus?: PluginUpdateStatus;
+  isCheckingUpdate: boolean;
+  isUpdating: boolean;
+  onCheckForUpdate: () => void;
+  onUpdate: () => void;
 }) {
   const byId = new Map(health.checks.map((check) => [check.id, check]));
   const sections = SECTIONS.map((section) => ({
@@ -159,6 +165,14 @@ export function SystemHealthReport({
           </CardContent>
         </Card>
       </section>
+
+      <PluginUpdateCard
+        status={updateStatus}
+        isChecking={isCheckingUpdate}
+        isUpdating={isUpdating}
+        onCheck={onCheckForUpdate}
+        onUpdate={onUpdate}
+      />
 
       <div className="grid gap-3 md:grid-cols-2">
         {sections.map((section) => (
