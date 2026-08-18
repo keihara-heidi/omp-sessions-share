@@ -14,7 +14,10 @@ import ompSessionsShareExtension, {
   submitEditorCommandPreservingDraft,
   versionCompatible,
 } from "../extension";
-import { enableCollabGuestTitleGeneration } from "../setup/install";
+import {
+  enableCollabGuestTitleGeneration,
+  resolveBundledOmpCli,
+} from "../setup/install";
 
 
 test("launcher origin defaults to workspace and accepts only ad-hoc marker", () => {
@@ -183,6 +186,36 @@ test("collab guest prompts start OMP title generation", async () => {
     expect(await enableCollabGuestTitleGeneration(packageRoot)).toBe(true);
     expect((await readFile(hostPath, "utf8")).match(/maybeStartTitleGeneration/g)).toHaveLength(1);
   } finally {
+    await rm(packageRoot, { recursive: true, force: true });
+  }
+});
+
+test("bundled OMP resolution ignores Bun's global plugin resolver", async () => {
+  const packageRoot = await mkdtemp(path.join(tmpdir(), "omp-resolver-"));
+  const ompRoot = path.join(
+    packageRoot,
+    "node_modules",
+    "@oh-my-pi",
+    "pi-coding-agent",
+  );
+  const hostPath = path.join(ompRoot, "src", "collab", "host.ts");
+  const cliPath = path.join(ompRoot, "src", "cli.ts");
+  await mkdir(path.dirname(hostPath), { recursive: true });
+  await writeFile(path.join(ompRoot, "package.json"), "{}");
+  await writeFile(cliPath, "");
+  await writeFile(
+    hostPath,
+    "\t\tconst details: CollabPromptDetails = { from: name };",
+  );
+
+  const resolveSync = Bun.resolveSync;
+  Bun.resolveSync = () => {
+    throw new Error("global resolver hook corrupted the specifier");
+  };
+  try {
+    expect(await resolveBundledOmpCli(packageRoot)).toBe(cliPath);
+  } finally {
+    Bun.resolveSync = resolveSync;
     await rm(packageRoot, { recursive: true, force: true });
   }
 });

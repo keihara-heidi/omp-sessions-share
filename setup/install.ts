@@ -513,29 +513,31 @@ export async function stopLocalShareServer(
   if (serveError) throw serveError;
 }
 
-/** Resolve pinned OMP source CLI from this package's dependency tree. */
-async function resolveBundledOmpCli(): Promise<string> {
-  let pkgJson: string;
-  try {
-    pkgJson = Bun.resolveSync(`${OMP_PKG}/package.json`, PACKAGE_ROOT);
-  } catch {
-    try {
-      pkgJson = Bun.resolveSync(`${OMP_PKG}/package.json`, import.meta.dir);
-    } catch {
+/** Resolve pinned OMP source CLI without Bun's process-global plugin resolver. */
+export async function resolveBundledOmpCli(
+  packageRoot = PACKAGE_ROOT,
+): Promise<string> {
+  const candidates = [
+    path.join(packageRoot, "node_modules", OMP_PKG),
+    path.join(path.dirname(packageRoot), OMP_PKG),
+  ];
+  for (const ompRoot of candidates) {
+    const pkgJson = path.join(ompRoot, "package.json");
+    if (!(await pathExists(pkgJson))) continue;
+    const cli = path.join(ompRoot, "src", "cli.ts");
+    if (!(await pathExists(cli))) {
+      throw new Error(`OMP source CLI not found at ${cli} (package incomplete)`);
+    }
+    if (!(await enableCollabGuestTitleGeneration(ompRoot))) {
       throw new Error(
-        `Missing dependency ${OMP_PKG}. Reinstall the plugin package so setup can build the omp launcher.`,
+        `Installed OMP does not expose the supported collab prompt path at ${ompRoot}`,
       );
     }
+    return cli;
   }
-  const cli = path.join(path.dirname(pkgJson), "src", "cli.ts");
-  if (
-    !(await enableCollabGuestTitleGeneration(path.dirname(path.dirname(cli))))
-  ) {
-    throw new Error(
-      "Installed OMP does not expose the supported collab prompt path",
-    );
-  }
-  return cli;
+  throw new Error(
+    `Missing dependency ${OMP_PKG}. Reinstall the plugin package so setup can build the omp launcher.`,
+  );
 }
 
 async function isOwnedLauncher(filePath: string): Promise<boolean> {
