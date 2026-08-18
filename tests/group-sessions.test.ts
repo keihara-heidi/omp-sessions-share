@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   groupSessions,
+  projectSessions,
+  projectWorkspaces,
   type SessionGroup as HierarchyGroup,
 } from "../app/components/group-sessions";
 import type {
@@ -431,5 +433,54 @@ describe("groupSessions recent sessions", () => {
   test("worktrees keep empty recentSessions when none provided", () => {
     const groups = groupSessions([sMain], "");
     expect(groups[0]!.worktrees[0]!.recentSessions).toEqual([]);
+  });
+});
+
+describe("dashboard page projections", () => {
+  const group = {
+    kind: "repository" as const,
+    name: "dashboard",
+    path: "/Users/dev/dashboard",
+  };
+  const worktree = {
+    name: "feature",
+    path: "/Users/dev/worktrees/feature",
+    branch: "feat/navigation",
+  };
+  const live = session({
+    id: "live-projection",
+    title: "Unique conversation title",
+    cwd: `${worktree.path}/app`,
+    lastSeenAt: "2026-08-12T04:00:00.000Z",
+    group,
+    worktree,
+  });
+  const recent: RecentSessionSummary = {
+    id: "recent-projection",
+    title: "Remember this conversation",
+    lastSeenAt: "2026-08-12T03:00:00.000Z",
+    group,
+    worktree,
+  };
+  const dashboard = {
+    sessions: [live],
+    locations: [],
+    recentSessions: [recent],
+  };
+
+  test("Sessions projects matching live and recent rows", () => {
+    expect(projectSessions(dashboard, "unique")).toEqual({
+      live: [live],
+      recent: [],
+    });
+    expect(projectSessions(dashboard, "remember")).toEqual({
+      live: [],
+      recent: [recent],
+    });
+  });
+
+  test("Workspaces searches workspace fields but not hidden session titles", () => {
+    expect(projectWorkspaces(dashboard, "feat/navigation")).toHaveLength(1);
+    expect(projectWorkspaces(dashboard, "unique conversation")).toEqual([]);
   });
 });

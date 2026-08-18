@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { safeJoin, serveStatic } from "../daemon/static";
@@ -42,5 +42,17 @@ describe("serveStatic", () => {
 
     const traversal = await serveStatic(dir, "/../package.json");
     expect(traversal.status).toBe(404);
+  });
+
+  test("serves exported directory routes with or without a trailing slash", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "omp-static-route-"));
+    mkdirSync(join(dir, "workspaces"));
+    writeFileSync(join(dir, "workspaces", "index.html"), "<html>workspaces</html>");
+
+    for (const pathname of ["/workspaces", "/workspaces/"]) {
+      const response = await serveStatic(dir, pathname);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain("workspaces");
+    }
   });
 });

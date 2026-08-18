@@ -1,23 +1,19 @@
 "use client";
 
-import { MonitorOff, SearchX } from "lucide-react";
-import type { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
-import { DashedEmpty, SessionSkeletonList } from "@/components/ds/feedback";
 import { SessionCard } from "@/components/ds/session-card";
 import { SessionItems } from "@/components/ds/session";
-import { TypographySmall } from "@/components/ui/typography";
+import {
+  TypographyCount,
+  TypographyH2,
+  TypographyMuted,
+} from "@/components/ui/typography";
 import {
   useDeactivateSession,
   useResumeRecentSession,
 } from "@/app/components/use-sessions";
 import type { RecentSessionSummary, SessionSummary } from "@/lib/contracts";
-import type { WorktreeGroup } from "@/app/components/group-sessions";
-
-/** Shorten a home-rooted absolute path for display. */
-export function tildify(path: string): string {
-  return path.replace(/^\/Users\/[^/]+/, "~");
-}
+import type { SessionProjection } from "@/app/components/group-sessions";
+import { tildify } from "@/lib/utils";
 
 function freshness(lastSeenAt: string, now: number): string {
   const seconds = Math.max(0, Math.round((now - Date.parse(lastSeenAt)) / 1000));
@@ -36,40 +32,12 @@ function endedAgo(lastSeenAt: string, now: number): string {
   return `ended ${Math.round(hours / 24)}d ago`;
 }
 
-export function SessionSkeletons() {
-  return <SessionSkeletonList />;
+function sessionContext(session: SessionSummary | RecentSessionSummary): string {
+  return session.group.name === session.worktree.name
+    ? session.group.name
+    : `${session.group.name} / ${session.worktree.name}`;
 }
 
-export function NoSessions() {
-  return (
-    <DashedEmpty icon={<MonitorOff aria-hidden />} title="No repositories or folders">
-      Start OMP in another terminal. Its location will remain available here.
-    </DashedEmpty>
-  );
-}
-
-export function NoResults({
-  query,
-  onClear,
-}: {
-  query: string;
-  onClear: () => void;
-}) {
-  return (
-    <DashedEmpty
-      icon={<SearchX aria-hidden />}
-      title="No matches"
-      action={
-        <Button variant="outline" size="touch-inline" onClick={onClear}>
-          Clear search
-        </Button>
-      }
-    >
-      Nothing matches “{query}” across repositories, branches, worktrees, or
-      session titles.
-    </DashedEmpty>
-  );
-}
 
 export function SessionButton({
   session,
@@ -99,6 +67,7 @@ export function SessionButton({
         removing: isDeactivating,
       }}
       title={session.title}
+      context={sessionContext(session)}
       path={tildify(session.cwd)}
       branch={session.worktree.branch}
       meta={freshness(session.lastSeenAt, now)}
@@ -106,8 +75,6 @@ export function SessionButton({
   );
 }
 
-/** Resumable remembered session; no removal rail, no Join — Resume restarts
- * it in its original worktree and SSE moves it to Live. */
 export function RecentSessionButton({
   recent,
   now,
@@ -129,6 +96,7 @@ export function RecentSessionButton({
       actionLabel="Resume"
       busyLabel="Resuming…"
       title={recent.title}
+      context={sessionContext(recent)}
       path={tildify(recent.worktree.path)}
       branch={recent.worktree.branch}
       meta={endedAgo(recent.lastSeenAt, now)}
@@ -136,36 +104,47 @@ export function RecentSessionButton({
   );
 }
 
-/** Live/Recent subsection label inside a worktree block. */
-function SubsectionLabel({ children }: { children: ReactNode }) {
+function SectionHeading({
+  id,
+  title,
+  count,
+}: {
+  id: string;
+  title: string;
+  count: number;
+}) {
   return (
-    <div className="px-3 pt-2 sm:px-3.5">
-      <TypographySmall>{children}</TypographySmall>
+    <div className="mb-2 flex items-center justify-between gap-3">
+      <TypographyH2 id={id}>{title}</TypographyH2>
+      <span className="rounded-md border border-border bg-secondary px-1.5 py-0.5">
+        <TypographyCount>{count}</TypographyCount>
+      </span>
     </div>
   );
 }
 
-/** Labeled Live/Recent session lists for one worktree. */
-export function WorktreeSessionLists({
-  worktree,
+export function SessionLists({
+  sessions,
   now,
   openingId,
   onSelect,
 }: {
-  worktree: WorktreeGroup;
+  sessions: SessionProjection;
   now: number;
   openingId: string | null;
   onSelect: (sessionId: string) => void;
 }) {
   return (
-    <>
-      {worktree.sessions.length > 0 ? (
-        <>
-          {worktree.recentSessions.length > 0 ? (
-            <SubsectionLabel>Live</SubsectionLabel>
-          ) : null}
+    <div className="flex flex-col gap-7">
+      <section aria-labelledby="live-sessions-heading">
+        <SectionHeading
+          id="live-sessions-heading"
+          title="Live"
+          count={sessions.live.length}
+        />
+        {sessions.live.length > 0 ? (
           <SessionItems>
-            {worktree.sessions.map((session) => (
+            {sessions.live.map((session) => (
               <li key={session.id}>
                 <SessionButton
                   session={session}
@@ -176,13 +155,20 @@ export function WorktreeSessionLists({
               </li>
             ))}
           </SessionItems>
-        </>
-      ) : null}
-      {worktree.recentSessions.length > 0 ? (
-        <>
-          <SubsectionLabel>Recent</SubsectionLabel>
+        ) : (
+          <TypographyMuted>Nothing is running right now.</TypographyMuted>
+        )}
+      </section>
+
+      <section aria-labelledby="recent-sessions-heading">
+        <SectionHeading
+          id="recent-sessions-heading"
+          title="Recent"
+          count={sessions.recent.length}
+        />
+        {sessions.recent.length > 0 ? (
           <SessionItems>
-            {worktree.recentSessions.map((recent) => (
+            {sessions.recent.map((recent) => (
               <li key={recent.id}>
                 <RecentSessionButton
                   recent={recent}
@@ -192,8 +178,10 @@ export function WorktreeSessionLists({
               </li>
             ))}
           </SessionItems>
-        </>
-      ) : null}
-    </>
+        ) : (
+          <TypographyMuted>No resumable sessions.</TypographyMuted>
+        )}
+      </section>
+    </div>
   );
 }

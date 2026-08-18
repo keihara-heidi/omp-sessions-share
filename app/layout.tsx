@@ -28,7 +28,11 @@ export default function RootLayout({
     <html lang="en" className={cn("dark font-sans", geist.variable, geistMono.variable)}>
       <body>
         <Providers>{children}</Providers>
-        <Toaster />
+        <Toaster
+          mobileOffset={{
+            bottom: "calc(5rem + env(safe-area-inset-bottom))",
+          }}
+        />
       </body>
     </html>
   );

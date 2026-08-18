@@ -2,6 +2,7 @@ import Fuse from "fuse.js";
 import type {
   DashboardLocation,
   RecentSessionSummary,
+  SessionDashboard,
   SessionGroupKind,
   SessionSummary,
 } from "@/lib/contracts";
@@ -22,6 +23,13 @@ export type SessionGroup = {
   worktrees: WorktreeGroup[];
 };
 
+export type SessionProjection = {
+  live: SessionSummary[];
+  recent: RecentSessionSummary[];
+};
+
+type SearchScope = "sessions" | "workspaces";
+
 type SearchItem = DashboardLocation & {
   key: string;
   session?: SessionSummary;
@@ -29,6 +37,17 @@ type SearchItem = DashboardLocation & {
   title: string;
   cwd: string;
 };
+
+function searchableValues(item: SearchItem, scope: SearchScope): string[] {
+  const workspace = [
+    item.group.name,
+    item.group.path,
+    item.worktree.name,
+    item.worktree.path,
+    item.worktree.branch ?? "",
+  ];
+  return scope === "sessions" ? [...workspace, item.title, item.cwd] : workspace;
+}
 
 function locationKey(groupPath: string, worktreePath: string): string {
   return `${groupPath}\0${worktreePath}`;
@@ -89,6 +108,7 @@ export function groupSessions(
   query: string,
   locations: DashboardLocation[] = [],
   recentSessions: RecentSessionSummary[] = [],
+  scope: SearchScope = "sessions",
 ): SessionGroup[] {
   // A session id that is currently live is never also shown as a recent.
   const liveIds = new Set(sessions.map((session) => session.id));
@@ -136,15 +156,24 @@ export function groupSessions(
 
   const terms = query.trim().split(/\s+/).filter(Boolean);
   const fuse = new Fuse(items, {
-    keys: [
-      "group.name",
-      "group.path",
-      "worktree.name",
-      "worktree.path",
-      "worktree.branch",
-      "title",
-      "cwd",
-    ],
+    keys:
+      scope === "sessions"
+        ? [
+            "group.name",
+            "group.path",
+            "worktree.name",
+            "worktree.path",
+            "worktree.branch",
+            "title",
+            "cwd",
+          ]
+        : [
+            "group.name",
+            "group.path",
+            "worktree.name",
+            "worktree.path",
+            "worktree.branch",
+          ],
     threshold: 0.35,
     ignoreLocation: true,
     minMatchCharLength: 1,
@@ -154,15 +183,9 @@ export function groupSessions(
     const exactKeys = new Set(
       items
         .filter((item) =>
-          [
-            item.group.name,
-            item.group.path,
-            item.worktree.name,
-            item.worktree.path,
-            item.worktree.branch ?? "",
-            item.title,
-            item.cwd,
-          ].some((value) => value.toLowerCase().includes(needle)),
+          searchableValues(item, scope).some((value) =>
+            value.toLowerCase().includes(needle),
+          ),
         )
         .map((item) => item.key),
     );
@@ -238,4 +261,38 @@ export function groupSessions(
     (a, b) => (groupStartedAt.get(b.path) ?? 0) - (groupStartedAt.get(a.path) ?? 0),
   );
   return result;
+}
+
+export function projectSessions(
+  dashboard: SessionDashboard,
+  query: string,
+): SessionProjection {
+  const groups = groupSessions(
+    dashboard.sessions,
+    query,
+    dashboard.locations,
+    dashboard.recentSessions,
+    "sessions",
+  );
+  return {
+    live: groups.flatMap((group) =>
+      group.worktrees.flatMap((worktree) => worktree.sessions),
+    ),
+    recent: groups.flatMap((group) =>
+      group.worktrees.flatMap((worktree) => worktree.recentSessions),
+    ),
+  };
+}
+
+export function projectWorkspaces(
+  dashboard: SessionDashboard,
+  query: string,
+): SessionGroup[] {
+  return groupSessions(
+    dashboard.sessions,
+    query,
+    dashboard.locations,
+    dashboard.recentSessions,
+    "workspaces",
+  );
 }
