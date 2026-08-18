@@ -14,8 +14,8 @@ OMP-only: upstream Pi does not provide `/collab`.
 ## Install
 
 ```bash
-omp plugin install github:keihara-heidi/omp-sessions-share
-bun x --no-cache github:keihara-heidi/omp-sessions-share setup
+omp plugin install github:keihara-heidi/omp-sessions-share#main
+bun x --no-cache github:keihara-heidi/omp-sessions-share#main setup
 oss start
 ```
 
@@ -105,7 +105,7 @@ The browser receives the collab link encrypted to a non-extractable RSA key gene
 ## Repair setup
 
 ```bash
-bun x --no-cache github:keihara-heidi/omp-sessions-share setup
+bun x --no-cache github:keihara-heidi/omp-sessions-share#main setup
 ```
 
 Setup is idempotent, retains existing secrets, and also repairs a missing `oss` launcher.
