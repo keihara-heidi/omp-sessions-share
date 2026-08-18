@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   Activity,
@@ -76,7 +77,18 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     <>
       <div className="mx-auto w-full max-w-4xl px-4 pt-5 sm:px-6 sm:pt-8">
         <PageHeader>
-          <PageTitle kicker="on this Mac">{title}</PageTitle>
+          <div className="flex min-w-0 items-center gap-3">
+            <Image
+              src="/icon.svg"
+              alt=""
+              aria-hidden
+              width={32}
+              height={32}
+              className="size-8 shrink-0 rounded-md"
+              priority
+            />
+            <PageTitle kicker="on this Mac">{title}</PageTitle>
+          </div>
           <nav
             aria-label="Dashboard"
             className="ml-auto hidden items-center gap-1 sm:flex"
