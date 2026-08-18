@@ -388,8 +388,8 @@ async function installLaunchAgent(runtimeRoot: string): Promise<void> {
   let loaded = run(["launchctl", "bootstrap", domain, plistPath], {
     allowFailure: true,
   });
-  if (!loaded.ok) {
-    await Bun.sleep(1_000);
+  for (let attempt = 0; !loaded.ok && attempt < 10; attempt++) {
+    await Bun.sleep(500);
     loaded = run(["launchctl", "bootstrap", domain, plistPath], {
       allowFailure: true,
     });
