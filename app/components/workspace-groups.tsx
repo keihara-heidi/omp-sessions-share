@@ -8,6 +8,10 @@ import { NewSessionButton } from "@/app/components/new-session-button";
 import { useCreateWorktree } from "@/app/components/use-sessions";
 import { PullRequestSection } from "@/app/components/pull-request-section";
 import {
+  WorkspaceCounts,
+  WorkspaceSessions,
+} from "@/app/components/workspace-sessions";
+import {
   BusyIcon,
   GroupBody,
   GroupChevron,
@@ -22,22 +26,8 @@ import {
   WorktreeHeading,
   WorktreeToolbar,
 } from "@/components/ds/session";
-import { TypographyCount } from "@/components/ui/typography";
 import { tildify } from "@/lib/utils";
 
-
-function WorkspaceCounts({ worktree }: { worktree: WorktreeGroup }) {
-  return (
-    <span className="flex shrink-0 items-center gap-1.5">
-      <span className="rounded-md border border-ok/30 bg-ok/10 px-1.5 py-0.5 text-ok">
-        <TypographyCount>{worktree.sessions.length} Live</TypographyCount>
-      </span>
-      <span className="rounded-md border border-border bg-card px-1.5 py-0.5">
-        <TypographyCount>{worktree.recentSessions.length} Recent</TypographyCount>
-      </span>
-    </span>
-  );
-}
 
 function WorktreeSection({
   group,
@@ -48,6 +38,7 @@ function WorktreeSection({
   worktree: WorktreeGroup;
   expanded: boolean;
 }) {
+  const deletable = group.kind === "repository" && worktree.path !== group.path;
   return (
     <WorktreeBlock label={`Worktree ${worktree.name}`}>
       <WorktreeToolbar>
@@ -57,15 +48,20 @@ function WorktreeSection({
           path={worktree.path !== group.path ? tildify(worktree.path) : undefined}
         />
         <WorkspaceCounts worktree={worktree} />
-        <NewSessionButton worktree={worktree} />
-        {group.kind === "repository" && worktree.path !== group.path ? (
-          <DeleteWorktreeButton group={group} worktree={worktree} />
-        ) : null}
+        <div
+          className={`grid w-full gap-2 sm:flex sm:w-auto ${deletable ? "grid-cols-2" : "grid-cols-1"}`}
+        >
+          <NewSessionButton worktree={worktree} />
+          {deletable ? (
+            <DeleteWorktreeButton group={group} worktree={worktree} />
+          ) : null}
+        </div>
       </WorktreeToolbar>
       <PullRequestSection
         worktree={worktree}
         enabled={expanded && group.kind === "repository" && Boolean(worktree.branch)}
       />
+      <WorkspaceSessions worktree={worktree} />
     </WorktreeBlock>
   );
 }

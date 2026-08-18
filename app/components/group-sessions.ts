@@ -293,6 +293,6 @@ export function projectWorkspaces(
     query,
     dashboard.locations,
     dashboard.recentSessions,
-    "workspaces",
+    "sessions",
   );
 }

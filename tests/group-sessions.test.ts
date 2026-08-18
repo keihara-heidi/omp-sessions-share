@@ -479,8 +479,15 @@ describe("dashboard page projections", () => {
     });
   });
 
-  test("Workspaces searches workspace fields but not hidden session titles", () => {
+  test("Workspaces searches workspace fields and visible session titles", () => {
     expect(projectWorkspaces(dashboard, "feat/navigation")).toHaveLength(1);
-    expect(projectWorkspaces(dashboard, "unique conversation")).toEqual([]);
+    const liveMatch = projectWorkspaces(dashboard, "unique conversation");
+    expect(liveMatch[0]?.worktrees[0]?.sessions.map((item) => item.id)).toEqual([
+      "live-projection",
+    ]);
+    const recentMatch = projectWorkspaces(dashboard, "remember this");
+    expect(
+      recentMatch[0]?.worktrees[0]?.recentSessions.map((item) => item.id),
+    ).toEqual(["recent-projection"]);
   });
 });

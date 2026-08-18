@@ -37,8 +37,8 @@ export default function WorkspacesPage() {
         <PageSearch
           value={query}
           onChange={setQuery}
-          placeholder="Search repos, worktrees, branches…"
-          ariaLabel="Search workspaces"
+          placeholder="Search repos, worktrees, branches, sessions…"
+          ariaLabel="Search workspaces and sessions"
         />
       ) : null}
 
