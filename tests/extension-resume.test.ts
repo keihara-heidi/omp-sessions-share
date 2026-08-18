@@ -10,11 +10,18 @@ import ompSessionsShareExtension, {
   onSessionReady,
   sanitizeOpenRouterResponsesPayload,
   sessionFileOf,
+  sessionOriginFromEnv,
   submitEditorCommandPreservingDraft,
   versionCompatible,
 } from "../extension";
 import { enableCollabGuestTitleGeneration } from "../setup/install";
 
+
+test("launcher origin defaults to workspace and accepts only ad-hoc marker", () => {
+  expect(sessionOriginFromEnv({})).toBe("workspace");
+  expect(sessionOriginFromEnv({ OMP_SESSION_ORIGIN: "adhoc" })).toBe("adhoc");
+  expect(sessionOriginFromEnv({ OMP_SESSION_ORIGIN: "other" })).toBe("workspace");
+});
 
 test("OMP startup and resume automatically enable dashboard sharing", async () => {
   let shareStarts = 0;

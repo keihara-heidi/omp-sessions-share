@@ -396,6 +396,7 @@ export type LaunchOmpInit =
   | {
       prompt?: string;
       resumeSessionFile?: string;
+      origin?: "adhoc";
     };
 
 type LaunchOmp = (worktreePath: string, init?: LaunchOmpInit) => Promise<void>;
@@ -426,17 +427,20 @@ type ApiDeps = {
 function normalizeLaunchInit(init?: LaunchOmpInit): {
   prompt?: string;
   resumeSessionFile?: string;
+  origin?: "adhoc";
 } {
   if (init === undefined) return {};
   if (typeof init === "string") return { prompt: init };
   const prompt = init.prompt;
   const resumeSessionFile = init.resumeSessionFile;
+  const origin = init.origin;
   if (prompt !== undefined && resumeSessionFile !== undefined) {
     throw new Error("prompt and resumeSessionFile are mutually exclusive");
   }
   return {
     ...(prompt !== undefined ? { prompt } : {}),
     ...(resumeSessionFile !== undefined ? { resumeSessionFile } : {}),
+    ...(origin !== undefined ? { origin } : {}),
   };
 }
 
@@ -445,13 +449,17 @@ export function buildOmpTerminalArgs(
   ompPath: string,
   init?: LaunchOmpInit,
 ): string[] {
-  const { prompt, resumeSessionFile } = normalizeLaunchInit(init);
+  const { prompt, resumeSessionFile, origin } = normalizeLaunchInit(init);
+  const executable =
+    origin === "adhoc"
+      ? '"/usr/bin/env OMP_SESSION_ORIGIN=adhoc " & quoted form of item 2 of argv'
+      : 'quoted form of item 2 of argv';
   const script =
     resumeSessionFile !== undefined
-      ? 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " --resume " & quoted form of item 3 of argv'
+      ? `tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & ${executable} & " --resume " & quoted form of item 3 of argv`
       : prompt === undefined
-        ? 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv'
-        : 'tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & quoted form of item 2 of argv & " @/dev/null " & quote & "$(/usr/bin/printf %s " & quoted form of item 3 of argv & " | /usr/bin/base64 -D)" & quote';
+        ? `tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & ${executable}`
+        : `tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & ${executable} & " @/dev/null " & quote & "$(/usr/bin/printf %s " & quoted form of item 3 of argv & " | /usr/bin/base64 -D)" & quote`;
   const argv = [
     "/usr/bin/osascript",
     "-e",
@@ -508,7 +516,10 @@ async function handleResumeRecentSession(
   }
 
   const worktreePath = row.worktree.path;
-  if (!isAdvertisedWorktreePath(worktreePath)) {
+  if (
+    row.origin !== "adhoc" &&
+    !isAdvertisedWorktreePath(worktreePath)
+  ) {
     return err("Worktree not found", 404);
   }
 
@@ -532,7 +543,10 @@ async function handleResumeRecentSession(
 
   resumeInFlight.add(resumeId);
   try {
-    await launchOmp(worktreePath, { resumeSessionFile: sessionFile });
+    await launchOmp(worktreePath, {
+      resumeSessionFile: sessionFile,
+      ...(row.origin === "adhoc" ? { origin: "adhoc" as const } : {}),
+    });
     return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return err("Could not resume session", 500);
@@ -577,6 +591,21 @@ async function handleLaunchSession(
 
   try {
     await launchOmp(input.worktreePath);
+    return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return err("Could not start session", 500);
+  }
+}
+
+async function handleLaunchHomeSession(
+  req: Request,
+  config: ShareConfig,
+  launchOmp: LaunchOmp,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  try {
+    await launchOmp(homedir(), { origin: "adhoc" });
     return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return err("Could not start session", 500);
@@ -1093,6 +1122,9 @@ export async function handleApi(
   }
   if (pathname === "/api/sessions/launch" && method === "POST") {
     return handleLaunchSession(req, config, launchOmp);
+  }
+  if (pathname === "/api/sessions/launch-home" && method === "POST") {
+    return handleLaunchHomeSession(req, config, launchOmp);
   }
   if (pathname === "/api/sessions/worktrees" && method === "POST") {
     return handleCreateWorktree(req, config, launchOmp, createWorktree);

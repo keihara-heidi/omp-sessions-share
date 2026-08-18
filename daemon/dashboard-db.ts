@@ -8,18 +8,20 @@ import {
   type RecentSessionSummary,
   type SessionGroup,
   type SessionGroupKind,
+  type SessionOrigin,
   type SessionWorktree,
   isIsoTimestamp,
   isNonEmptyString,
   isValidId,
   newId,
   parseSessionGroup,
+  parseSessionOrigin,
   parseSessionWorktree,
 } from "../lib/contracts";
 import { getDashboardDbPath } from "../shared/config";
 
 /** Supported schema version written via PRAGMA user_version. */
-export const DASHBOARD_DB_USER_VERSION = 1 as const;
+export const DASHBOARD_DB_USER_VERSION = 2 as const;
 
 /** Retention: drop resume rows older than this many days (unless live-protected). */
 export const RESUME_SESSION_MAX_AGE_DAYS = 90 as const;
@@ -47,6 +49,7 @@ export type ResumeSessionRow = {
   title: string;
   startedAt: string;
   lastSeenAt: string;
+  origin: SessionOrigin;
   group: SessionGroup;
   worktree: SessionWorktree;
 };
@@ -58,6 +61,7 @@ export type ResumeSessionInput = {
   title: string;
   startedAt: string;
   lastSeenAt: string;
+  origin: SessionOrigin;
   group: SessionGroup;
   worktree: SessionWorktree;
 };
@@ -97,6 +101,7 @@ type ResumeRow = {
   title: string;
   started_at: string;
   last_seen_at: string;
+  origin: string;
   group_kind: string;
   group_name: string;
   group_path: string;
@@ -137,8 +142,8 @@ function applyPragmas(db: Database): void {
   db.exec("PRAGMA busy_timeout = 5000");
 }
 
-/** Create v1 tables + indexes. Caller must run inside a transaction at user_version 0. */
-function migrateV0ToV1(db: Database): void {
+/** Create current tables + indexes. Caller must run inside a transaction at user_version 0. */
+function migrateV0ToV2(db: Database): void {
   db.exec(`
     CREATE TABLE meta (
       key TEXT PRIMARY KEY NOT NULL,
@@ -166,6 +171,7 @@ function migrateV0ToV1(db: Database): void {
       title TEXT NOT NULL,
       started_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL,
+      origin TEXT NOT NULL DEFAULT 'workspace',
       group_kind TEXT NOT NULL,
       group_name TEXT NOT NULL,
       group_path TEXT NOT NULL,
@@ -186,9 +192,15 @@ function migrateV0ToV1(db: Database): void {
   db.exec(`PRAGMA user_version = ${DASHBOARD_DB_USER_VERSION}`);
 }
 
+/** Add origin to resume rows created by schema v1. */
+function migrateV1ToV2(db: Database): void {
+  db.exec("ALTER TABLE resume_sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'workspace'");
+  db.exec(`PRAGMA user_version = ${DASHBOARD_DB_USER_VERSION}`);
+}
+
 /**
  * Idempotent migration. Rejects DBs written by a newer schema.
- * v0→v1 is transactional so a failed migrate never bumps user_version.
+ * Migrations are transactional so failures never bump user_version.
  */
 export function migrateDashboardDb(db: Database): void {
   const version = readUserVersion(db);
@@ -208,7 +220,11 @@ export function migrateDashboardDb(db: Database): void {
     }
     if (current === DASHBOARD_DB_USER_VERSION) return;
     if (current === 0) {
-      migrateV0ToV1(db);
+      migrateV0ToV2(db);
+      return;
+    }
+    if (current === 1) {
+      migrateV1ToV2(db);
       return;
     }
     throw new Error(`dashboard db user_version ${current} cannot be migrated`);
@@ -217,7 +233,7 @@ export function migrateDashboardDb(db: Database): void {
 }
 
 /**
- * Open (or create) the dashboard DB with private modes, WAL pragmas, and v1 schema.
+ * Open (or create) the dashboard DB with private modes, WAL pragmas, and current schema.
  * Safe to call repeatedly on an existing file — migration is idempotent.
  */
 export function openDashboardDb(
@@ -370,6 +386,8 @@ function decodeResumeRow(row: ResumeRow): ResumeSessionRow {
   if (!isNonEmptyString(row.title, 256)) throw new Error("invalid title");
   if (!isIsoTimestamp(row.started_at)) throw new Error("invalid started_at");
   if (!isIsoTimestamp(row.last_seen_at)) throw new Error("invalid last_seen_at");
+  const origin = parseSessionOrigin(row.origin);
+  if (!origin) throw new Error("invalid origin");
   const group = decodeGroup(row.group_kind, row.group_name, row.group_path);
   const worktree = decodeWorktree(
     row.worktree_name,
@@ -383,6 +401,7 @@ function decodeResumeRow(row: ResumeRow): ResumeSessionRow {
     title: row.title,
     startedAt: row.started_at,
     lastSeenAt: row.last_seen_at,
+    origin,
     group,
     worktree,
   };
@@ -409,6 +428,8 @@ function assertResumeInput(input: ResumeSessionInput): ResumeSessionInput {
   if (!isNonEmptyString(input.title, 256)) throw new Error("invalid title");
   if (!isIsoTimestamp(input.startedAt)) throw new Error("invalid startedAt");
   if (!isIsoTimestamp(input.lastSeenAt)) throw new Error("invalid lastSeenAt");
+  const origin = parseSessionOrigin(input.origin);
+  if (!origin) throw new Error("invalid origin");
   const group = parseSessionGroup(input.group);
   const worktree = parseSessionWorktree(input.worktree);
   if (!group || !worktree) throw new Error("invalid group/worktree");
@@ -417,6 +438,7 @@ function assertResumeInput(input: ResumeSessionInput): ResumeSessionInput {
     sessionFile: input.sessionFile,
     title: input.title,
     startedAt: input.startedAt,
+    origin,
     lastSeenAt: input.lastSeenAt,
     group,
     worktree,
@@ -427,6 +449,7 @@ function toPublicSummary(row: ResumeSessionRow): RecentSessionSummary {
   return {
     id: row.resumeId,
     title: row.title,
+    origin: row.origin,
     lastSeenAt: row.lastSeenAt,
     group: row.group,
     worktree: row.worktree,
@@ -614,13 +637,14 @@ export function upsertResumeSession(
 
     db.query(
       `INSERT INTO resume_sessions (
-         resume_id, session_id, session_file, title, started_at, last_seen_at,
+         resume_id, session_id, session_file, title, started_at, last_seen_at, origin,
          group_kind, group_name, group_path, worktree_name, worktree_path, worktree_branch
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id) DO UPDATE SET
          session_file = excluded.session_file,
          title = excluded.title,
          last_seen_at = excluded.last_seen_at,
+         origin = excluded.origin,
          group_kind = excluded.group_kind,
          group_name = excluded.group_name,
          group_path = excluded.group_path,
@@ -634,6 +658,7 @@ export function upsertResumeSession(
       next.title,
       startedAt,
       lastSeenAt,
+      next.origin,
       next.group.kind,
       next.group.name,
       next.group.path,
@@ -645,7 +670,7 @@ export function upsertResumeSession(
     return decodeResumeRow(
       db
         .query(
-          `SELECT resume_id, session_id, session_file, title, started_at, last_seen_at,
+          `SELECT resume_id, session_id, session_file, title, started_at, last_seen_at, origin,
                   group_kind, group_name, group_path, worktree_name, worktree_path, worktree_branch
            FROM resume_sessions
            WHERE session_id = ?`,
@@ -666,7 +691,7 @@ export function getResumeSessionByResumeId(
   if (!isValidId(resumeId)) return null;
   const row = db
     .query(
-      `SELECT resume_id, session_id, session_file, title, started_at, last_seen_at,
+      `SELECT resume_id, session_id, session_file, title, started_at, last_seen_at, origin,
               group_kind, group_name, group_path, worktree_name, worktree_path, worktree_branch
        FROM resume_sessions
        WHERE resume_id = ?`,
@@ -684,7 +709,7 @@ export function getResumeSessionBySessionId(
   if (!isValidId(sessionId)) return null;
   const row = db
     .query(
-      `SELECT resume_id, session_id, session_file, title, started_at, last_seen_at,
+      `SELECT resume_id, session_id, session_file, title, started_at, last_seen_at, origin,
               group_kind, group_name, group_path, worktree_name, worktree_path, worktree_branch
        FROM resume_sessions
        WHERE session_id = ?`,
@@ -740,7 +765,7 @@ export function listResumeSessionCandidates(
   const exclude = new Set(excludeSessionIds);
   const rows = db
     .query(
-      `SELECT resume_id, session_id, session_file, title, started_at, last_seen_at,
+      `SELECT resume_id, session_id, session_file, title, started_at, last_seen_at, origin,
               group_kind, group_name, group_path, worktree_name, worktree_path, worktree_branch
        FROM resume_sessions
        ORDER BY last_seen_at DESC, resume_id ASC`,

@@ -18,6 +18,7 @@ function session(
     Partial<Pick<SessionSummary, "startedAt">>,
 ): SessionSummary {
   return {
+    origin: "workspace",
     startedAt: partial.startedAt ?? partial.lastSeenAt,
     ...partial,
   };
@@ -314,7 +315,7 @@ describe("groupSessions recent sessions", () => {
     partial: Pick<RecentSessionSummary, "id" | "title" | "lastSeenAt"> &
       Partial<Pick<RecentSessionSummary, "group" | "worktree">>,
   ): RecentSessionSummary {
-    return { group: repoA, worktree: mainWt, ...partial };
+    return { origin: "workspace", group: repoA, worktree: mainWt, ...partial };
   }
 
   const rMainOld = recent({
@@ -459,6 +460,7 @@ describe("dashboard page projections", () => {
     id: "recent-projection",
     title: "Remember this conversation",
     lastSeenAt: "2026-08-12T03:00:00.000Z",
+    origin: "workspace",
     group,
     worktree,
   };
@@ -477,6 +479,36 @@ describe("dashboard page projections", () => {
       live: [],
       recent: [recent],
     });
+  });
+
+  test("ad-hoc live and recent rows stay in Sessions but not Workspaces", () => {
+    const adhocLive = { ...live, id: "adhoc-live", origin: "adhoc" as const };
+    const adhocRecent = {
+      ...recent,
+      id: "adhoc-recent",
+      origin: "adhoc" as const,
+    };
+    const adhocDashboard = {
+      sessions: [adhocLive],
+      locations: [],
+      recentSessions: [adhocRecent],
+    };
+
+    expect(projectSessions(adhocDashboard, "")).toEqual({
+      live: [adhocLive],
+      recent: [adhocRecent],
+    });
+    expect(projectWorkspaces(adhocDashboard, "")).toEqual([]);
+  });
+
+  test("explicit locations remain Workspaces without ad-hoc rows", () => {
+    const groups = projectWorkspaces({
+      sessions: [{ ...live, origin: "adhoc" }],
+      locations: [{ group, worktree, lastSessionStartedAt: live.startedAt }],
+      recentSessions: [],
+    }, "");
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.worktrees[0]?.sessions).toEqual([]);
   });
 
   test("Workspaces searches workspace fields and visible session titles", () => {

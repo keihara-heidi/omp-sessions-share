@@ -93,6 +93,36 @@ describe("daemon store TTL pruning", () => {
     });
   });
 
+  test("ad-hoc sessions and recents never register dashboard locations", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-adhoc-origin-"));
+    const dbPath = join(root, "dashboard.sqlite");
+    const sessionFile = join(root, "session.jsonl");
+    writeFileSync(sessionFile, "{}\n");
+    try {
+      configureDashboardDb(dbPath);
+      const session = upsertSession({
+        id: "adhoc-session",
+        title: "Home session",
+        cwd: root,
+        startedAt: "2026-08-12T00:00:00.000Z",
+        origin: "adhoc",
+        sessionFile,
+      });
+      expect(session.origin).toBe("adhoc");
+      expect(getSessionDashboard().locations).toEqual([]);
+      expect(deactivateSession(session.id)).toBe(true);
+      expect(getSessionDashboard().recentSessions[0]?.origin).toBe("adhoc");
+
+      resetStoreForTests();
+      configureDashboardDb(dbPath);
+      expect(getSessionDashboard().locations).toEqual([]);
+      expect(getSessionDashboard().recentSessions[0]?.origin).toBe("adhoc");
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("dashboard locations survive daemon store reloads until explicitly removed", () => {
     const root = mkdtempSync(join(tmpdir(), "omp-location-history-"));
     const cwd = join(root, "project");
@@ -331,6 +361,7 @@ describe("resume session durability", () => {
           id: recent.id,
           title: "First title",
           lastSeenAt: recent.lastSeenAt,
+          origin: "workspace",
           group: live.group,
           worktree: live.worktree,
         },

@@ -27,8 +27,8 @@ export default function WorkspacesPage() {
   const hasWorkspaces = Boolean(
     data &&
       (data.locations.length > 0 ||
-        data.sessions.length > 0 ||
-        data.recentSessions.length > 0),
+        data.sessions.some((session) => session.origin !== "adhoc") ||
+        data.recentSessions.some((session) => session.origin !== "adhoc")),
   );
 
   if (unauthorized) return null;

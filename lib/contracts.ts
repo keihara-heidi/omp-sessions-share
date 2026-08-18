@@ -1,6 +1,7 @@
 /** Shared API contracts — never includes plaintext collab links. */
 
 export type SessionGroupKind = "repository" | "folder";
+export type SessionOrigin = "workspace" | "adhoc";
 
 export type SessionGroup = {
   kind: SessionGroupKind;
@@ -15,6 +16,7 @@ export type SessionWorktree = {
 };
 
 export type SessionSummary = {
+  origin: SessionOrigin;
   id: string;
   title: string;
   cwd: string;
@@ -26,6 +28,7 @@ export type SessionSummary = {
 
 /** Public recent-session row — never includes host-only sessionFile. */
 export type RecentSessionSummary = {
+  origin: SessionOrigin;
   id: string;
   title: string;
   lastSeenAt: string;
@@ -333,6 +336,11 @@ export async function readJsonBody(
   }
 }
 
+export function parseSessionOrigin(v: unknown): SessionOrigin | null {
+  if (v === undefined) return "workspace";
+  return v === "workspace" || v === "adhoc" ? v : null;
+}
+
 export function parseSessionGroup(v: unknown): SessionGroup | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
@@ -363,6 +371,8 @@ export function parseSessionSummary(v: unknown): SessionSummary | null {
   if (!isNonEmptyString(o.cwd, 1024)) return null;
   if (!isIsoTimestamp(o.startedAt)) return null;
   if (!isIsoTimestamp(o.lastSeenAt)) return null;
+  const origin = parseSessionOrigin(o.origin);
+  if (!origin) return null;
   const group = parseSessionGroup(o.group);
   if (!group) return null;
   const worktree = parseSessionWorktree(o.worktree);
@@ -373,6 +383,7 @@ export function parseSessionSummary(v: unknown): SessionSummary | null {
     cwd: o.cwd,
     startedAt: o.startedAt,
     lastSeenAt: o.lastSeenAt,
+    origin,
     group,
     worktree,
   };
@@ -386,6 +397,8 @@ export function parseRecentSessionSummary(
   if (!isValidId(o.id)) return null;
   if (!isNonEmptyString(o.title, 256)) return null;
   if (!isIsoTimestamp(o.lastSeenAt)) return null;
+  const origin = parseSessionOrigin(o.origin);
+  if (!origin) return null;
   const group = parseSessionGroup(o.group);
   if (!group) return null;
   const worktree = parseSessionWorktree(o.worktree);
@@ -394,6 +407,7 @@ export function parseRecentSessionSummary(
     id: o.id,
     title: o.title,
     lastSeenAt: o.lastSeenAt,
+    origin,
     group,
     worktree,
   };
@@ -433,6 +447,7 @@ export type HostSessionHeartbeatInput = {
   title: string;
   cwd: string;
   startedAt: string;
+  origin?: SessionOrigin;
   pid?: number;
   /** Absolute host path to the session jsonl; never sent to browsers. */
   sessionFile?: string;
@@ -469,11 +484,14 @@ export function parseHostSessionHeartbeat(
     if (!isValidSessionFilePath(o.sessionFile)) return null;
     sessionFile = o.sessionFile;
   }
+  const origin = parseSessionOrigin(o.origin);
+  if (!origin) return null;
   return {
     id: o.id,
     title: o.title,
     cwd: o.cwd,
     startedAt: o.startedAt,
+    origin,
     ...(pid !== undefined ? { pid } : {}),
     ...(sessionFile !== undefined ? { sessionFile } : {}),
   };

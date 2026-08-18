@@ -9,7 +9,7 @@ export function SessionSkeletons() {
 export function NoSessions() {
   return (
     <DashedEmpty icon={<MonitorOff aria-hidden />} title="No live or recent sessions">
-      Sessions appear here after OMP reports from a registered workspace.
+      Start a new session above, or open OMP in a registered workspace.
     </DashedEmpty>
   );
 }
