@@ -8,7 +8,7 @@ import {
   listenEndpoint,
   type ShareConfig,
 } from "../shared/config";
-import { handleApi } from "./api";
+import { handleApi, SERVER_IDLE_TIMEOUT_SECONDS } from "./api";
 import {
   matchRelayPath,
   relayWebSocket,
@@ -54,6 +54,7 @@ async function main(): Promise<void> {
     hostname: "127.0.0.1",
     port,
     maxRequestBodySize: 16_384,
+    idleTimeout: SERVER_IDLE_TIMEOUT_SECONDS,
     async fetch(request, bunServer) {
       const url = new URL(request.url);
       const { pathname } = url;

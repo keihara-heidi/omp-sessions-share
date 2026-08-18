@@ -12,6 +12,8 @@ import type { ShareConfig } from "../shared/config";
 import {
   buildOmpTerminalArgs,
   handleApi,
+  SERVER_IDLE_TIMEOUT_SECONDS,
+  SSE_KEEPALIVE_MS,
   resetDashboardReconciliationForTests,
 } from "../daemon/api";
 import { DASHBOARD_COOKIE_NAME } from "../lib/auth";
@@ -919,6 +921,12 @@ describe("GET /api/events SSE", () => {
     if (done || !value) return "";
     return new TextDecoder().decode(value);
   }
+
+  test("server idle timeout exceeds the SSE keepalive interval", () => {
+    expect(SERVER_IDLE_TIMEOUT_SECONDS * 1_000).toBeGreaterThan(
+      SSE_KEEPALIVE_MS,
+    );
+  });
 
   test("requires dashboard cookie auth", async () => {
     const res = await api(

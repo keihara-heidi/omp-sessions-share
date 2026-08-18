@@ -303,7 +303,8 @@ async function handleDashboard(
   });
 }
 
-const SSE_KEEPALIVE_MS = 15_000;
+export const SSE_KEEPALIVE_MS = 15_000;
+export const SERVER_IDLE_TIMEOUT_SECONDS = 30;
 
 async function handleEvents(
   req: Request,
