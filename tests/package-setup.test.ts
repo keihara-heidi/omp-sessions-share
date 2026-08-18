@@ -468,6 +468,7 @@ describe("packaged path resolution fixtures", () => {
       /RUNTIME_DIR_NAME\s*=\s*"omp-sessions-share-runtime"/,
     );
     expect(installSrc).toMatch(/path\.join\(PACKAGE_ROOT,\s*"package\.json"\)/);
+    expect(installSrc).toMatch(/await Bun\.sleep\(250\)/);
     expect(installSrc).toMatch(/path\.join\(staging,\s*"package\.json"\)/);
     // Launcher wraps pinned OMP CLI from dependency tree, not a global binary guess.
     expect(installSrc).toMatch(/@oh-my-pi\/pi-coding-agent/);

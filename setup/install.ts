@@ -385,9 +385,15 @@ async function installLaunchAgent(runtimeRoot: string): Promise<void> {
   run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], {
     allowFailure: true,
   });
-  const loaded = run(["launchctl", "bootstrap", domain, plistPath], {
+  let loaded = run(["launchctl", "bootstrap", domain, plistPath], {
     allowFailure: true,
   });
+  if (!loaded.ok) {
+    await Bun.sleep(250);
+    loaded = run(["launchctl", "bootstrap", domain, plistPath], {
+      allowFailure: true,
+    });
+  }
   if (!loaded.ok) {
     throw new Error(
       `launchctl bootstrap failed: ${loaded.stderr.trim() || loaded.stdout.trim()}`,
