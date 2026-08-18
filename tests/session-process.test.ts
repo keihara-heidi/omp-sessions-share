@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildCloseTerminalArgs,
   isKillableSessionCommand,
   killSessionProcess,
 } from "../daemon/session-process";
@@ -19,6 +20,21 @@ describe("isKillableSessionCommand", () => {
     expect(isKillableSessionCommand("/System/Applications/Utilities/Terminal.app")).toBe(
       false,
     );
+  });
+});
+
+describe("buildCloseTerminalArgs", () => {
+  test("closes only a single-tab Terminal window owning the process TTY", () => {
+    const tty = "/dev/ttys123";
+    const args = buildCloseTerminalArgs(tty);
+    const script = args.slice(1, -1).join(" ");
+
+    expect(args[0]).toBe("/usr/bin/osascript");
+    expect(script).toContain("(count of tabs of w) is 1");
+    expect(script).toContain("tty of selected tab of w is item 1 of argv");
+    expect(script).toContain("close w");
+    expect(script).not.toContain(tty);
+    expect(args.at(-1)).toBe(tty);
   });
 });
 
