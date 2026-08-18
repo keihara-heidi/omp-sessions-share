@@ -57,8 +57,8 @@ On a tailnet-connected phone, open the dashboard URL and enter the password show
 
 From the dashboard:
 
-1. **Sessions** joins Live sessions, marks them inactive, resumes exact prior conversations from Recent, and forgets Recent entries.
-2. **Workspaces** starts blank sessions in remembered worktrees. Repository groups can create sibling linked worktrees; linked worktrees can be deleted when clean without deleting their branches.
+1. **Sessions** joins Live sessions, marks them inactive, resumes exact prior conversations from Recent, forgets Recent entries, and starts ad-hoc OMP sessions in the host home directory. Ad-hoc sessions remain in Sessions and never become remembered Workspaces.
+2. **Workspaces** starts blank sessions only in remembered worktrees. Repository groups can create sibling linked worktrees; linked worktrees can be deleted when clean without deleting their branches.
 3. Repository worktrees show pull-request readiness. Applicable actions start focused OMP repair sessions for conflicts, failed checks, requested changes, or unresolved review comments; ready pull requests can be merged directly.
 4. **System** reports daemon, runtime, database, Tailscale, local-tool, and sleep-inhibitor health. Remediation remains terminal-driven.
 
@@ -98,7 +98,7 @@ Dashboard session and location changes arrive as complete snapshots through one 
 
 System health is fetched independently and cached briefly by the daemon. **Refresh** requests a new snapshot without adding another dashboard event stream. Individual checks fail independently, so available diagnostics remain visible when one local dependency cannot be inspected.
 
-Workspace groups start collapsed. Launching is limited to worktrees advertised by the dashboard’s remembered locations.
+Workspace groups start collapsed. Workspace launching remains limited to worktrees advertised by the dashboard’s remembered locations; the Sessions-page New session action instead launches an ad-hoc home-directory session without registering that directory as a Workspace.
 
 The browser receives the collab link encrypted to a non-extractable RSA key generated on that device. The relay sees only OMP's existing end-to-end encrypted collab frames.
 

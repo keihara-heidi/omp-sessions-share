@@ -80,6 +80,7 @@ describe("contracts validators", () => {
       title: "t",
       cwd: "/tmp",
       startedAt: "2026-01-01T00:00:00.000Z",
+      origin: "workspace",
     });
     expect(
       parseHostSessionHeartbeat({
@@ -94,6 +95,7 @@ describe("contracts validators", () => {
       title: "t",
       cwd: "/tmp",
       startedAt: "2026-01-01T00:00:00.000Z",
+      origin: "workspace",
       pid: 4242,
     });
     expect(
@@ -125,6 +127,7 @@ describe("contracts validators", () => {
       title: "t",
       cwd: "/tmp",
       startedAt: "2026-01-01T00:00:00.000Z",
+      origin: "workspace",
       sessionFile: "/Users/dev/.omp/sessions/s1.jsonl",
     });
     expect(
@@ -188,6 +191,7 @@ describe("contracts validators", () => {
       cwd: "/tmp/project",
       startedAt: "2026-01-01T00:00:00.000Z",
       lastSeenAt: "2026-01-01T00:00:01.000Z",
+      origin: "workspace",
       group: {
         kind: "repository",
         name: "project",
@@ -292,6 +296,7 @@ describe("contracts validators", () => {
       cwd: "/tmp/project",
       startedAt: "2026-01-01T00:00:00.000Z",
       lastSeenAt: "2026-01-01T00:00:01.000Z",
+      origin: "workspace" as const,
     };
     expect(
       parseSessionSummary({
@@ -335,6 +340,7 @@ describe("contracts validators", () => {
       id: "s1",
       title: "t",
       lastSeenAt: "2026-01-01T00:00:01.000Z",
+      origin: "workspace",
       group: {
         kind: "repository",
         name: "project",
@@ -379,6 +385,7 @@ describe("contracts validators", () => {
       cwd: "/tmp/project",
       startedAt: "2026-01-01T00:00:00.000Z",
       lastSeenAt: "2026-01-01T00:00:01.000Z",
+      origin: "workspace",
       group: recent.group,
       worktree: recent.worktree,
     });

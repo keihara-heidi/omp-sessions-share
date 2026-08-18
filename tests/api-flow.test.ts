@@ -6,7 +6,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
 import {
@@ -143,6 +143,15 @@ describe("buildOmpTerminalArgs", () => {
 
     expect(args[4]).not.toContain("/usr/bin/base64");
     expect(args[4]).not.toContain("--resume");
+    expect(args.at(-1)).toBe("/tmp/omp");
+  });
+
+  test("carries the ad-hoc origin as a fixed environment marker", () => {
+    const args = buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp", {
+      origin: "adhoc",
+    });
+
+    expect(args[4]).toContain("/usr/bin/env OMP_SESSION_ORIGIN=adhoc");
     expect(args.at(-1)).toBe("/tmp/omp");
   });
 
@@ -412,6 +421,37 @@ describe("local daemon auth gates", () => {
       },
     );
     expect(unknown?.status).toBe(404);
+  });
+
+  test("starts an authenticated ad-hoc session in the daemon home only", async () => {
+    let calls = 0;
+    const unauthorized = await handleApi(
+      jsonRequest("http://local/api/sessions/launch-home", {
+        worktreePath: "/tmp/client-controlled",
+      }),
+      config,
+      "/api/sessions/launch-home",
+      async () => {
+        calls += 1;
+      },
+    );
+    expect(unauthorized?.status).toBe(401);
+    expect(calls).toBe(0);
+
+    const cookie = await loginCookie();
+    const launches: Array<{ path: string; init: unknown }> = [];
+    const launched = await handleApi(
+      jsonRequest("http://local/api/sessions/launch-home", {
+        worktreePath: "/tmp/client-controlled",
+      }, { cookie }),
+      config,
+      "/api/sessions/launch-home",
+      async (path, init) => {
+        launches.push({ path, init });
+      },
+    );
+    expect(launched?.status).toBe(200);
+    expect(launches).toEqual([{ path: homedir(), init: { origin: "adhoc" } }]);
   });
 
   test("creates a blank worktree for a remembered repository with no sessions", async () => {
@@ -1508,7 +1548,10 @@ describe("recent session resume", () => {
     return sessionFile;
   }
 
-  function seedRecent(sessionId = "resume_seed_1"): {
+  function seedRecent(
+    sessionId = "resume_seed_1",
+    origin: "workspace" | "adhoc" = "workspace",
+  ): {
     resumeId: string;
     sessionId: string;
     sessionFile: string;
@@ -1521,6 +1564,7 @@ describe("recent session resume", () => {
     const session = upsertSession({
       id: sessionId,
       title: "Remembered",
+      origin,
       cwd,
       startedAt: "2026-08-12T00:00:00.000Z",
       sessionFile,
@@ -1603,6 +1647,28 @@ describe("recent session resume", () => {
         init: { resumeSessionFile: seeded.sessionFile },
       },
     ]);
+  });
+
+  test("ad-hoc resume preserves origin without a Workspace location", async () => {
+    const seeded = seedRecent("resume_adhoc", "adhoc");
+    expect(getSessionDashboard().locations).toEqual([]);
+    const cookie = await loginCookie();
+    const launches: Array<{ path: string; init: unknown }> = [];
+    const path = `/api/recent-sessions/${seeded.resumeId}/resume`;
+    const res = await handleApi(
+      new Request(`http://local${path}`, { method: "POST", headers: { cookie } }),
+      config,
+      path,
+      async (worktreePath, init) => {
+        launches.push({ path: worktreePath, init });
+      },
+    );
+
+    expect(res?.status).toBe(200);
+    expect(launches).toEqual([{
+      path: seeded.worktreePath,
+      init: { resumeSessionFile: seeded.sessionFile, origin: "adhoc" },
+    }]);
   });
 
   test("host bearer alone cannot resume", async () => {

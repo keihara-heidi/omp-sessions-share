@@ -289,10 +289,10 @@ export function projectWorkspaces(
   query: string,
 ): SessionGroup[] {
   return groupSessions(
-    dashboard.sessions,
+    dashboard.sessions.filter((session) => session.origin !== "adhoc"),
     query,
     dashboard.locations,
-    dashboard.recentSessions,
+    dashboard.recentSessions.filter((session) => session.origin !== "adhoc"),
     "sessions",
   );
 }

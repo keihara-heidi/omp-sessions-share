@@ -157,13 +157,13 @@ describe("open/close permissions", () => {
   });
 });
 
-describe("migrate v1 schema", () => {
-  test("fresh DB ends at user_version=1 with all tables and indexes", () => {
+describe("migrate dashboard schema", () => {
+  test("fresh DB ends at current user_version with all tables and indexes", () => {
     const handle = openTempDb();
     const version = handle.db.query("PRAGMA user_version").get() as {
       user_version: number;
     };
-    expect(version.user_version).toBe(1);
+    expect(version.user_version).toBe(DASHBOARD_DB_USER_VERSION);
 
     const tables = handle.db
       .query(
@@ -193,7 +193,7 @@ describe("migrate v1 schema", () => {
     expect(indexes.map((i) => i.name)).toContain("resume_sessions_group_worktree_idx");
   });
 
-  test("opening an already-v1 DB is a no-op migration", () => {
+  test("opening a current DB is a no-op migration", () => {
     const dir = makeTemp("omp-dash-v1-");
     const path = join(dir, "db.sqlite");
     const first = openDashboardDb(path);
@@ -209,7 +209,40 @@ describe("migrate v1 schema", () => {
     const version = second.db.query("PRAGMA user_version").get() as {
       user_version: number;
     };
-    expect(version.user_version).toBe(1);
+    expect(version.user_version).toBe(DASHBOARD_DB_USER_VERSION);
+  });
+
+  test("v1 resume rows migrate with workspace origin", () => {
+    const dir = makeTemp("omp-dash-v1-origin-");
+    const path = join(dir, "db.sqlite");
+    const raw = new Database(path, { create: true });
+    raw.exec(`
+      CREATE TABLE resume_sessions (
+        resume_id TEXT PRIMARY KEY NOT NULL,
+        session_id TEXT NOT NULL UNIQUE,
+        session_file TEXT NOT NULL,
+        title TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        group_kind TEXT NOT NULL,
+        group_name TEXT NOT NULL,
+        group_path TEXT NOT NULL,
+        worktree_name TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        worktree_branch TEXT
+      );
+      PRAGMA user_version = 1;
+    `);
+    raw.close();
+
+    const migrated = openDashboardDb(path);
+    openHandles.push(migrated);
+    const columns = migrated.db.query("PRAGMA table_info(resume_sessions)").all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toContain("origin");
+    const migratedVersion = migrated.db.query("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    expect(migratedVersion.user_version).toBe(DASHBOARD_DB_USER_VERSION);
   });
 
   test("rejects future user_version", () => {
@@ -334,7 +367,7 @@ describe("migrate v1 schema", () => {
     const v = handle.db.query("PRAGMA user_version").get() as {
       user_version: number;
     };
-    expect(v.user_version).toBe(1);
+    expect(v.user_version).toBe(DASHBOARD_DB_USER_VERSION);
   });
 });
 
@@ -413,6 +446,7 @@ function resumeInput(
     title: "title",
     startedAt: "2026-01-01T00:00:00.000Z",
     lastSeenAt: "2026-01-01T00:00:01.000Z",
+    origin: "workspace",
     group: sampleGroup,
     worktree: sampleWorktree,
     ...overrides,
@@ -554,6 +588,7 @@ describe("resume session CRUD", () => {
         id: row.id,
         title: row.title,
         lastSeenAt: row.lastSeenAt,
+        origin: row.origin,
         group: row.group,
         worktree: row.worktree,
       });

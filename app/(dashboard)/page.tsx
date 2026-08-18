@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { FailAlert, WarnAlert } from "@/components/ds/feedback";
 import { Page, PageSearch } from "@/components/ds/page";
 import JoinSession from "@/app/components/join-session";
+import { NewHomeSessionButton } from "@/app/components/new-session-button";
 import { projectSessions, type SessionProjection } from "@/app/components/group-sessions";
 import {
   NoSessionResults,
@@ -33,14 +34,14 @@ export default function SessionsPage() {
 
   return (
     <Page>
-      {hasSessions ? (
-        <PageSearch
-          value={query}
-          onChange={setQuery}
-          placeholder="Search sessions, repos, worktrees…"
-          ariaLabel="Search sessions"
-        />
-      ) : null}
+      <PageSearch
+        value={query}
+        onChange={setQuery}
+        placeholder="Search sessions…"
+        ariaLabel="Search sessions"
+        showSearch={hasSessions}
+        action={<NewHomeSessionButton />}
+      />
 
       {offline ? (
         <WarnAlert title="Connection lost">

@@ -43,11 +43,21 @@ type EncryptedLink = {
 	ciphertext: string;
 };
 
+const SESSION_ORIGIN_ENV = "OMP_SESSION_ORIGIN";
+type SessionOrigin = "workspace" | "adhoc";
+
+export function sessionOriginFromEnv(
+	env: Readonly<Record<string, string | undefined>> = process.env,
+): SessionOrigin {
+	return env[SESSION_ORIGIN_ENV] === "adhoc" ? "adhoc" : "workspace";
+}
+
 type SessionHeartbeat = {
 	id: string;
 	title: string;
 	cwd: string;
 	startedAt: string;
+	origin: SessionOrigin;
 	pid: number;
 	/** Absolute host path to the session jsonl; host-only, never logged. */
 	sessionFile?: string;
@@ -91,6 +101,7 @@ type SessionRuntime = {
 	sessionId: string;
 	startedAt: string;
 	cwd: string;
+	origin: SessionOrigin;
 	title: string;
 	/** Exact session jsonl path when known; never derived from cwd. */
 	sessionFile?: string;
@@ -569,6 +580,7 @@ function ensureRuntime(ctx: ExtensionContext): SessionRuntime {
 		sessionId,
 		startedAt: new Date().toISOString(),
 		cwd: ctx.cwd,
+		origin: sessionOriginFromEnv(),
 		title: sessionTitleOf(ctx),
 		...(sessionFile !== undefined ? { sessionFile } : {}),
 		ctx,
@@ -612,6 +624,7 @@ async function pollOnce(rt: SessionRuntime): Promise<void> {
 					title: rt.title,
 					cwd: rt.cwd,
 					startedAt: rt.startedAt,
+					origin: rt.origin,
 					pid: process.pid,
 					...(sessionFile !== undefined ? { sessionFile } : {}),
 				} satisfies SessionHeartbeat),

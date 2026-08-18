@@ -94,6 +94,15 @@ export function useLaunchSession() {
     onError: (error) => toast.error(errorMessage(error, "Could not start session")),
   });
 }
+export function useLaunchHomeSession() {
+  return useMutation({
+    mutationFn: () =>
+      api<{ ok: true }>("/api/sessions/launch-home", { method: "POST" }),
+    onSuccess: () => toast.success("Started OMP session"),
+    onError: () => toast.error("Could not start session"),
+  });
+}
+
 
 /** PR readiness for one worktree; only repository worktrees with a branch query. */
 export function usePullRequestStatus(worktreePath: string, enabled: boolean) {

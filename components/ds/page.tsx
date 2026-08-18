@@ -55,14 +55,18 @@ export function PageSearch({
   onChange,
   placeholder,
   ariaLabel,
+  action,
+  showSearch = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
   ariaLabel: string;
+  action?: ReactNode;
+  showSearch?: boolean;
 }) {
-  return (
-    <InputGroup className="mb-5 h-11 bg-card sm:h-9">
+  const search = showSearch ? (
+    <InputGroup className="h-11 flex-1 bg-card sm:h-9">
       <InputGroupAddon>
         <Search aria-hidden />
       </InputGroupAddon>
@@ -74,6 +78,15 @@ export function PageSearch({
         onChange={(event) => onChange(event.target.value)}
       />
     </InputGroup>
+  ) : null;
+  if (!action) return <div className="mb-5">{search}</div>;
+  return (
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="order-first w-full sm:order-last sm:w-auto [&>button]:w-full">
+        {action}
+      </div>
+      {search}
+    </div>
   );
 }
 

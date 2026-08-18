@@ -116,6 +116,7 @@ function assertPublicRecent(row: unknown): RecentSessionSummary {
     id: recent.id,
     title: recent.title,
     lastSeenAt: recent.lastSeenAt,
+    origin: recent.origin,
     group: recent.group,
     worktree: recent.worktree,
   });
@@ -123,6 +124,7 @@ function assertPublicRecent(row: unknown): RecentSessionSummary {
     "group",
     "id",
     "lastSeenAt",
+    "origin",
     "title",
     "worktree",
   ]);
@@ -138,6 +140,7 @@ function assertPublicLive(row: unknown): SessionSummary {
     "group",
     "id",
     "lastSeenAt",
+    "origin",
     "startedAt",
     "title",
     "worktree",

@@ -108,6 +108,7 @@ function sessionFingerprint(s: SessionSummary): string {
     s.title,
     s.cwd,
     s.startedAt,
+    s.origin,
     s.group.kind,
     s.group.name,
     s.group.path,
@@ -136,6 +137,7 @@ function resumeIdentityFingerprint(
   return [
     sessionFile,
     session.title,
+    session.origin,
     session.group.kind,
     session.group.name,
     session.group.path,
@@ -337,6 +339,7 @@ function persistResumeFromHeartbeat(
         sessionFile,
         title: session.title,
         startedAt: session.startedAt,
+        origin: session.origin,
         lastSeenAt: session.lastSeenAt,
         group: session.group,
         worktree: session.worktree,
@@ -501,15 +504,19 @@ export function upsertSession(
     cwd: input.cwd,
     startedAt: existing?.startedAt ?? input.startedAt,
     lastSeenAt: new Date(now).toISOString(),
+    origin: input.origin ?? "workspace",
     group: location.group,
     worktree,
   };
   const changed = meaningfulChanged(existing, session);
-  const locationChanged = writeDashboardLocation({
-    group: session.group,
-    worktree: session.worktree,
-    lastSessionStartedAt: session.startedAt,
-  });
+  const locationChanged =
+    session.origin === "adhoc"
+      ? false
+      : writeDashboardLocation({
+          group: session.group,
+          worktree: session.worktree,
+          lastSessionStartedAt: session.startedAt,
+        });
   writeSession(session, now);
   if (input.pid !== undefined) sessionPids.set(session.id, input.pid);
   // Host-only resume identity — never copied onto SessionSummary / listener payload.
