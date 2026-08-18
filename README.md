@@ -19,7 +19,7 @@ bun ~/.omp/plugins/node_modules/omp-sessions-share/setup/cli.ts setup
 oss start
 ```
 
-The one-time `bun` command installs `oss` in `~/.local/bin`; subsequent setup, repair, and lifecycle commands use `oss` directly.
+The one-time `bun` command performs initial setup and installs `oss` in `~/.local/bin`; lifecycle commands use `oss` afterward.
 
 Then start OMP normally. Each interactive session automatically starts native `/collab` and registers with the running dashboard.
 
@@ -105,10 +105,10 @@ The browser receives the collab link encrypted to a non-extractable RSA key gene
 ## Repair setup
 
 ```bash
-oss setup
+bun ~/.omp/plugins/node_modules/omp-sessions-share/setup/cli.ts setup
 ```
 
-Setup is idempotent and retains existing secrets.
+Setup is idempotent, retains existing secrets, and also repairs a missing `oss` launcher.
 
 ## Update
 
