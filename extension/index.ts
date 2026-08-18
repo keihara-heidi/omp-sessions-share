@@ -4,7 +4,7 @@
  * Docs (native `/collab`):
  * - docs/collab.md: native `/collab` owns AES-GCM room + browser deep link; link possession is trust boundary.
  * - ExtensionContext has no collab/start-builtin API; no documented builtin execution API.
- * - TUI emits `input` before builtin slash dispatch → `/share` can be owned here (core reserves the name).
+ * - TUI emits `input` before builtin slash dispatch → intercept native `/collab` to re-show the captured link.
  * - Managed timers required for background work.
  *
  * Compatibility bridge (isolated, version-checked): capture native collab `webLink` without reimplementing collab.
@@ -13,7 +13,8 @@
  *   2) capture browser deep links from OSC-8 sequences that `/collab` prints via showStatus
  * Never log tokens, key material, ciphertext, or collab links.
  *
- * Local runtime: heartbeats hit loopback daemon with Bearer host token. Native host always uses
+ * Local runtime: heartbeats hit loopback daemon with Bearer host token when that daemon is already
+ * running. This extension never starts/stops launchd or Tailscale. Native host always uses
  * ws://127.0.0.1:7466; password-gated guest links wrap config.publicOrigin via https://my.omp.sh/#…
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -21,13 +22,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { loadShareConfig, type ShareConfig } from "../shared/config";
-import {
-	cleanupLegacyLocalShareRelay,
-	enableCollabGuestTitleGeneration,
-	setupLocalRuntime,
-	startLocalShareServer,
-	stopLocalShareServer,
-} from "../setup/install";
+import { enableCollabGuestTitleGeneration } from "../setup/install";
 import { encryptWithPublicJwk, type PublicKeyJwk } from "./crypto";
 
 // ---- local contracts (standalone; do not import root lib/) ----
@@ -136,14 +131,6 @@ const bridge: BridgeState = {
 let runtime: SessionRuntime | null = null;
 /** undefined = not loaded yet; null = missing/invalid. */
 let cachedConfig: ShareConfig | null | undefined;
-let setupPrompted = false;
-let serverControlQueue: Promise<void> = Promise.resolve();
-
-function enqueueServerControl(operation: () => Promise<void>): Promise<void> {
-	const next = serverControlQueue.then(operation, operation);
-	serverControlQueue = next.catch(() => undefined);
-	return next;
-}
 
 // ---- config ----
 
@@ -168,7 +155,7 @@ function applyConfigToBridge(config: ShareConfig): void {
 	startPollLoop(runtime);
 	notifyInfo(
 		runtime.ctx,
-		`Sessions share (tailnet)\n  URL: ${config.publicOrigin}\n  Password: ${config.dashboardPassword}`,
+		`Sessions share connected\n  URL: ${config.publicOrigin}`,
 	);
 }
 
@@ -391,6 +378,7 @@ async function tryPatchCollabHostPrototype(pkgRoot: string): Promise<boolean> {
 	}
 }
 
+
 const QR_BUNDLE_PATCH_MARKER = "omp-sessions-share:no-collab-qr";
 
 /** Patch the bundled CLI used by global OMP launchers; takes effect on the next process. */
@@ -443,7 +431,7 @@ async function installCollabBridge(): Promise<{ ok: boolean; reason?: string }> 
 	installStdoutCapture();
 
 	if (pkgRoot) {
-		await enableCollabGuestTitleGeneration(pkgRoot);
+		enableCollabGuestTitleGeneration(pkgRoot);
 		disableBundledCollabQrCode(pkgRoot);
 		await disableCollabQrCode(pkgRoot);
 		await tryPatchCollabHostPrototype(pkgRoot);
@@ -780,29 +768,39 @@ async function tryTriggerNativeCollab(
 	return Boolean(link);
 }
 
+async function isConfiguredDaemonReachable(config: ShareConfig): Promise<boolean> {
+	const base = config.localOrigin.replace(/\/+$/, "");
+	try {
+		const res = await fetch(`${base}/healthz`, {
+			headers: { accept: "application/json" },
+			signal: AbortSignal.timeout(1_500),
+		});
+		if (!res.ok) return false;
+		const body = (await res.json().catch(() => null)) as { ok?: unknown } | null;
+		return body?.ok === true;
+	} catch {
+		return false;
+	}
+}
+
+/** Connect collab + heartbeats only when the configured local daemon is already up. */
 async function startShare(rt: SessionRuntime): Promise<void> {
 	rt.shareStopped = false;
 
-	let config = await getShareConfig();
+	const config = await getShareConfig();
 	if (runtime !== rt || rt.shareStopped) return;
 	if (!config) {
-		config = await offerFirstRunSetup(rt.ctx);
-		if (runtime !== rt || rt.shareStopped) return;
-	}
-	if (!config) {
+		notifyInfo(rt.ctx, "Sessions share is not configured. Run: oss setup");
 		rt.shareStopped = true;
 		return;
 	}
-
-	try {
-		await cleanupLegacyLocalShareRelay();
-		await enqueueServerControl(() => startLocalShareServer());
-	} catch (err) {
-		notifyError(rt.ctx, `Share: failed to start dashboard: ${err instanceof Error ? err.message : String(err)}`);
+	const reachable = await isConfiguredDaemonReachable(config);
+	if (runtime !== rt || rt.shareStopped) return;
+	if (!reachable) {
+		notifyInfo(rt.ctx, "Sessions share daemon is not running. Start it with: oss start");
 		rt.shareStopped = true;
 		return;
 	}
-	if (runtime !== rt || rt.shareStopped) return;
 
 	const installed = await installCollabBridge();
 	if (!installed.ok) {
@@ -813,7 +811,7 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 	if (runtime !== rt || rt.shareStopped) return;
 	if (bridge.webLink) {
 		startPollLoop(rt);
-		notifyInfo(rt.ctx, `Share dashboard started (tailnet)\n  URL: ${config.publicOrigin}\n  Password: ${config.dashboardPassword}`);
+		notifyInfo(rt.ctx, `Share dashboard connected\n  URL: ${config.publicOrigin}`);
 		return;
 	}
 
@@ -825,55 +823,7 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 		return;
 	}
 	startPollLoop(rt);
-	notifyInfo(rt.ctx, `Share dashboard started (tailnet)\n  URL: ${config.publicOrigin}\n  Password: ${config.dashboardPassword}`);
-}
-
-async function stopShare(rt: SessionRuntime | null, ctx: ExtensionContext): Promise<void> {
-	if (rt) {
-		rt.shareStopped = true;
-		stopPoll();
-	}
-
-	try {
-		await enqueueServerControl(() => stopLocalShareServer());
-		notifyInfo(ctx, "Share dashboard stopped; OMP session is still running");
-	} catch (err) {
-		notifyError(ctx, `Share: failed to stop dashboard: ${err instanceof Error ? err.message : String(err)}`);
-	}
-}
-
-async function offerFirstRunSetup(ctx: ExtensionContext): Promise<ShareConfig | null> {
-	if (setupPrompted) return null;
-	setupPrompted = true;
-	if (!ctx.hasUI) return null;
-
-	let accepted = false;
-	try {
-		accepted = await ctx.ui.confirm(
-			"Set up sessions share?",
-			"omp-sessions-share is installed but not configured.\nRun local setup now? (generates secrets, installs daemon + Tailscale Serve)",
-		);
-	} catch {
-		return null;
-	}
-	if (!accepted) {
-		notifyInfo(ctx, "Share setup skipped. Run /share later to configure sessions share.");
-		return null;
-	}
-
-	try {
-		const config = await setupLocalRuntime();
-		cachedConfig = config;
-		applyConfigToBridge(config);
-		notifyInfo(
-			ctx,
-			"Share setup complete",
-		);
-		return config;
-	} catch (err) {
-		notifyError(ctx, `Share setup failed: ${err instanceof Error ? err.message : String(err)}`);
-		return null;
-	}
+	notifyInfo(rt.ctx, `Share dashboard connected\n  URL: ${config.publicOrigin}`);
 }
 
 type StartDashboardShare = (rt: SessionRuntime) => Promise<void>;
@@ -887,63 +837,15 @@ export async function onSessionReady(
 	if (rt.collabStartAttempted) return;
 	rt.collabStartAttempted = true;
 
-	// Every interactive host session is dashboard-visible by default. startShare
-	// also starts native /collab and begins authenticated dashboard heartbeats.
+	// Every interactive host session joins the running dashboard when available.
+	// startShare never launches the daemon; it only starts native /collab + heartbeats.
 	await startDashboardShare(rt);
-}
-
-export type ShareCommand =
-	| { action: "start" }
-	| { action: "stop" }
-	| { action: "register"; path?: string };
-
-export function parseShareCommand(text: string): ShareCommand | null {
-	const trimmed = text.trim();
-	if (/^\/share\s*$/i.test(trimmed)) return { action: "start" };
-	if (/^\/share\s+stop\s*$/i.test(trimmed)) return { action: "stop" };
-	const register = /^\/share\s+register(?:\s+(.+?))?\s*$/i.exec(trimmed);
-	if (!register) return null;
-	const requestedPath = register[1]?.trim();
-	return requestedPath
-		? { action: "register", path: requestedPath }
-		: { action: "register" };
-}
-
-function isShareCommand(text: string): boolean {
-	return /^\/share(?:\s|$)/i.test(text.trim());
 }
 
 function isCollabCommand(text: string): boolean {
 	return /^\/collab(?:\s+start)?\s*$/i.test(text.trim());
 }
 
-async function registerShareLocation(
-	ctx: ExtensionContext,
-	requestedPath?: string,
-): Promise<void> {
-	const registrationPath = path.resolve(ctx.cwd, requestedPath || ".");
-	const result = await hostApi<{
-		locations: Array<{ group: { path: string } }>;
-	}>("/api/host/locations", {
-		method: "POST",
-		body: JSON.stringify({ path: registrationPath }),
-	});
-	if (!result.ok) {
-		notifyError(ctx, `Share register failed: ${result.error}`);
-		return;
-	}
-	if (!Array.isArray(result.data.locations)) {
-		notifyError(ctx, "Share register failed: Invalid response shape");
-		return;
-	}
-	const registeredPaths = [
-		...new Set(result.data.locations.map(location => location.group.path)),
-	];
-	notifyInfo(
-		ctx,
-		`Registered ${registeredPaths.length} ${registeredPaths.length === 1 ? "location" : "locations"}\n${registeredPaths.map(registeredPath => `  ${registeredPath}`).join("\n")}`,
-	);
-}
 
 /** OpenAI rejects replayed reasoning items whose `content` array is non-empty. */
 export function sanitizeOpenRouterResponsesPayload(payload: unknown): unknown {
@@ -987,27 +889,6 @@ export default function ompSessionsShareExtension(pi: ExtensionAPI): void {
 
 	pi.on("input", (event, ctx) => {
 		const text = event.text ?? "";
-		const rt = runtime && runtime.sessionId === ctx.sessionManager.getSessionId() ? runtime : null;
-		const shareCommand = parseShareCommand(text);
-
-		if (shareCommand?.action === "start") {
-			const live = rt ?? ensureRuntime(ctx);
-			void startShare(live);
-			return { handled: true };
-		}
-		if (shareCommand?.action === "stop") {
-			void stopShare(rt, ctx);
-			return { handled: true };
-		}
-		if (shareCommand?.action === "register") {
-			void registerShareLocation(ctx, shareCommand.path);
-			return { handled: true };
-		}
-		if (isShareCommand(text)) {
-			notifyError(ctx, "Usage: /share [stop | register [path]]");
-			return { handled: true };
-		}
-
 		if (isCollabCommand(text) && bridge.webLink) {
 			notifyInfo(ctx, bridge.webLink);
 			return { handled: true };

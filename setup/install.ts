@@ -453,7 +453,7 @@ export async function startLocalShareServer(
   const control = localServerControl(options);
   if (!(await pathExists(control.plistPath))) {
     throw new Error(
-      "Dashboard service is not installed. Run omp-sessions-share setup first.",
+      "Dashboard service is not installed. Run oss setup first.",
     );
   }
 

@@ -257,6 +257,89 @@ describe("local daemon auth gates", () => {
     expect(await failed?.json()).toEqual({ error: "Service unavailable" });
   });
 
+  test("host system health requires Bearer and preserves dashboard cookie gate", async () => {
+    let calls = 0;
+    const deps = {
+      getSystemHealth: async () => {
+        calls += 1;
+        return healthySystem;
+      },
+    };
+
+    const noAuth = await handleApi(
+      new Request("http://local/api/host/system/health"),
+      config,
+      "/api/host/system/health",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(noAuth?.status).toBe(401);
+    expect(noAuth?.headers.get("cache-control")).toBe("no-store");
+    expect(calls).toBe(0);
+
+    const cookie = await loginCookie();
+    const cookieOnly = await handleApi(
+      new Request("http://local/api/host/system/health", {
+        headers: { cookie },
+      }),
+      config,
+      "/api/host/system/health",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(cookieOnly?.status).toBe(401);
+    expect(calls).toBe(0);
+
+    const wrong = await handleApi(
+      new Request("http://local/api/host/system/health", {
+        headers: { authorization: "Bearer wrong-token-value!!" },
+      }),
+      config,
+      "/api/host/system/health",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(wrong?.status).toBe(401);
+    expect(calls).toBe(0);
+
+    const ok = await handleApi(
+      new Request("http://local/api/host/system/health", {
+        headers: { authorization: `Bearer ${config.hostToken}` },
+      }),
+      config,
+      "/api/host/system/health",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(ok?.status).toBe(200);
+    expect(ok?.headers.get("cache-control")).toBe("no-store");
+    expect(await ok?.json()).toEqual({
+      data: {
+        health: healthySystem,
+        liveSessions: 0,
+        recentSessions: 0,
+      },
+    });
+    expect(calls).toBe(1);
+
+    // Dashboard endpoint still rejects bare host Bearer.
+    const dashWithHost = await handleApi(
+      new Request("http://local/api/system/health", {
+        headers: { authorization: `Bearer ${config.hostToken}` },
+      }),
+      config,
+      "/api/system/health",
+      undefined,
+      undefined,
+      deps,
+    );
+    expect(dashWithHost?.status).toBe(401);
+  });
+
   test("Bearer host heartbeat required", async () => {
     const body = {
       id: "session_1",

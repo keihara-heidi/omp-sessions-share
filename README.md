@@ -1,6 +1,6 @@
 # omp-sessions-share
 
-Private, live OMP sessions on your phone through Tailscale. Every interactive OMP session started or resumed on the host automatically starts native `/collab` and registers with the local dashboard.
+Private, live OMP sessions on your phone through Tailscale. The dashboard is controlled from the terminal; OMP sessions connect to it automatically when it is running.
 
 OMP-only: upstream Pi does not provide `/collab`.
 
@@ -17,7 +17,14 @@ OMP-only: upstream Pi does not provide `/collab`.
 omp plugin install github:keihara-heidi/omp-sessions-share
 ```
 
-Start OMP. On first use, accept the prompt to set up the local runtime; the session then appears on the dashboard automatically.
+Set up and start the dashboard from the terminal:
+
+```bash
+oss setup
+oss start
+```
+
+Then start OMP normally. Each interactive session automatically starts native `/collab` and registers with the running dashboard.
 
 Setup creates:
 
@@ -34,22 +41,28 @@ No Vercel, Redis, cloud database, or central service.
 
 ## Use
 
-1. Run or resume `omp`. Native `/collab` starts automatically and the session registers with the dashboard.
-2. Run `/share` to reprint the dashboard URL and password or restart sharing. Run `/share stop` to stop dashboard sharing without terminating OMP or its collab session. Run `/collab` to display the active live-session link.
-3. On a tailnet-connected phone, open the URL and enter the password.
-4. Open **Sessions** to join a Live session, remove a stale Live row, or resume an exact prior conversation from Recent.
-5. Open **Workspaces** to start a blank session in an advertised worktree. Repository groups can create a sibling linked worktree with `git worktree` and start OMP there; linked worktrees also expose delete, pull-request repair, and ready-to-merge actions.
-6. Open **System** to check the daemon, installed runtime, database, Tailscale ingress, local tools, and sleep inhibitor. The page is diagnostic only; follow its terminal instructions outside the dashboard when a check needs attention.
-7. Removing a Live session hides it and SIGTERMs that session's OMP process. The IDE or terminal app is not closed. If another live dashboard session shares the same process, only the dashboard row is removed.
-8. After a Live row expires (15 seconds without a heartbeat) or is removed, it appears under **Recent** on Sessions. Tap **Resume** to reopen that exact prior session in the same worktree. Native `/collab` starts automatically after the resumed session heartbeats. The browser never receives the host session JSONL path.
+```bash
+oss help           # show every terminal command
+oss start          # start dashboard, print health, and follow API requests
+oss status         # show health checks and session counts
+oss open           # open the dashboard
+oss logs --follow  # follow sanitized API activity without starting it
+oss stop           # stop dashboard sharing without stopping OMP
+```
+
+`oss start` remains attached to display sanitized requests. Press Ctrl-C to stop the display; the dashboard continues running in the background.
+
+Start or resume OMP normally with `omp`. Dashboard lifecycle is not controlled from inside OMP; native `/collab` still displays the current live-session link.
+
+On a tailnet-connected phone, open the dashboard URL and enter the password shown by `oss credentials`.
 
 Register a repository or directory before it has a live session:
 
-```text
-/share register [path]
+```bash
+oss register [path]
 ```
 
-The path defaults to the current session directory. A project folder containing multiple Git repositories registers each repository; a plain folder with no repositories registers as one folder.
+The path defaults to the current directory. A project folder containing multiple Git repositories registers each repository; a plain folder with no repositories registers as one folder.
 
 The dashboard has three focused pages:
 
@@ -105,17 +118,25 @@ Every commit to `main` must bump the `package.json` version using semantic versi
 ## Repair setup
 
 ```bash
-bun ~/.omp/plugins/node_modules/omp-sessions-share/setup/cli.ts
+oss setup
 ```
 
 Setup is idempotent and retains existing secrets.
+
+## Update
+
+```bash
+oss update
+```
+
+Update upgrades the installed plugin and reruns idempotent setup so the copied daemon runtime and launchers match it.
 
 ## Uninstall
 
 Run runtime cleanup before removing the plugin:
 
 ```bash
-bun ~/.omp/plugins/node_modules/omp-sessions-share/setup/cli.ts uninstall
+oss uninstall
 omp plugin uninstall omp-sessions-share
 ```
 

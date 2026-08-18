@@ -1034,6 +1034,33 @@ async function handleSystemHealth(
   }
 }
 
+/** Host-authenticated health for terminal `status` — never dashboard-cookie gated. */
+async function handleHostSystemHealth(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = requireHostAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!deps.getSystemHealth) {
+    return err("Service unavailable", 503);
+  }
+  try {
+    const health = await deps.getSystemHealth();
+    const dashboard = getSessionDashboard();
+    return jsonOk(
+      {
+        health,
+        liveSessions: dashboard.sessions.length,
+        recentSessions: dashboard.recentSessions.length,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch {
+    return err("Service unavailable", 503);
+  }
+}
+
 /** Route /api/* — returns null when path is not under /api/. */
 export async function handleApi(
   req: Request,
@@ -1128,6 +1155,9 @@ export async function handleApi(
 
   if (pathname === "/api/host/locations" && method === "POST") {
     return handleHostRegisterLocations(req, config);
+  }
+  if (pathname === "/api/host/system/health" && method === "GET") {
+    return handleHostSystemHealth(req, config, deps);
   }
 
   if (pathname === "/api/host/sessions" && method === "POST") {

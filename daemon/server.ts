@@ -1,5 +1,6 @@
 /** Local omp-sessions-share daemon: API + static dashboard + collab relay. */
 
+import { resolve as pathResolve } from "node:path";
 import {
   getDashboardDbPath,
   getDashboardLocationsPath,
@@ -26,6 +27,39 @@ import {
   subscribeSessionChanges,
 } from "./store";
 import { createSystemHealthService } from "./system-health";
+
+/** Pathname only — never query, body, headers, or secrets. */
+export function formatAccessLogLine(input: {
+  at: Date;
+  method: string;
+  pathname: string;
+  status: number;
+  durationMs: number;
+}): string {
+  const ts = input.at.toISOString();
+  const method = input.method.toUpperCase();
+  const ms = Math.max(0, Math.round(input.durationMs));
+  return `${ts} ${method} ${input.pathname} ${input.status} ${ms}ms`;
+}
+
+function logAccess(
+  request: Request,
+  pathname: string,
+  status: number,
+  startedAt: number,
+): void {
+  if (pathname !== "/healthz" && !pathname.startsWith("/api/")) return;
+  // LaunchAgent captures stdout to ~/.omp/logs/omp-sessions-share.log
+  console.log(
+    formatAccessLogLine({
+      at: new Date(),
+      method: request.method,
+      pathname,
+      status,
+      durationMs: performance.now() - startedAt,
+    }),
+  );
+}
 
 async function main(): Promise<void> {
   const configPath =
@@ -56,23 +90,39 @@ async function main(): Promise<void> {
     maxRequestBodySize: 16_384,
     idleTimeout: SERVER_IDLE_TIMEOUT_SECONDS,
     async fetch(request, bunServer) {
+      const startedAt = performance.now();
       const url = new URL(request.url);
       const { pathname } = url;
 
+      const respond = (response: Response): Response => {
+        logAccess(request, pathname, response.status, startedAt);
+        return response;
+      };
+
       if (pathname === "/healthz") {
-        return Response.json({ ok: true });
+        return respond(Response.json({ ok: true }));
       }
 
       const room = matchRelayPath(pathname);
       if (room) {
         const role = url.searchParams.get("role");
         if (role !== "host" && role !== "guest") {
-          return new Response("not found", { status: 404 });
+          return respond(new Response("not found", { status: 404 }));
         }
-        return (
-          tryUpgradeRelay(request, bunServer, room.roomId, role) ??
-          new Response("websocket upgrade required", { status: 426 })
+        const upgraded = tryUpgradeRelay(
+          request,
+          bunServer,
+          room.roomId,
+          role,
         );
+        if (!upgraded) {
+          return respond(
+            new Response("websocket upgrade required", { status: 426 }),
+          );
+        }
+        // Successful upgrade has no HTTP response body status to log.
+        logAccess(request, pathname, 101, startedAt);
+        return upgraded;
       }
 
       if (pathname.startsWith("/api/")) {
@@ -84,14 +134,14 @@ async function main(): Promise<void> {
           undefined,
           apiDeps,
         );
-        return res ?? new Response("not found", { status: 404 });
+        return respond(res ?? new Response("not found", { status: 404 }));
       }
 
       if (request.method === "GET" || request.method === "HEAD") {
-        return serveStatic(webRoot, pathname);
+        return respond(await serveStatic(webRoot, pathname));
       }
 
-      return new Response("method not allowed", { status: 405 });
+      return respond(new Response("method not allowed", { status: 405 }));
     },
     websocket: relayWebSocket,
   });
@@ -132,7 +182,14 @@ async function main(): Promise<void> {
   console.log(`  public: ${config.publicOrigin}`);
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+const isDirectRun =
+  typeof Bun !== "undefined" &&
+  !!Bun.main &&
+  pathResolve(Bun.main) === pathResolve(import.meta.path);
+
+if (isDirectRun) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

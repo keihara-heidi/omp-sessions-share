@@ -98,7 +98,7 @@ describe("public package manifest", () => {
     expect(PKG.publishConfig?.access).toBe("public");
     expect(PKG.license).toBe("MIT");
     expect(PKG.os).toEqual(["darwin"]);
-    expect(PKG.bin?.["omp-sessions-share"]).toBe("./setup/cli.ts");
+    expect(PKG.bin?.oss).toBe("./setup/cli.ts");
     expect(PKG.omp?.extensions).toEqual(["./extension/index.ts"]);
   });
 
@@ -382,8 +382,11 @@ describe("setup contract without system mutation", () => {
       new Response(proc.stdout).text(),
     ]);
     expect(code).toBe(0);
-    expect(stdout).toMatch(/omp-sessions-share/);
-    expect(stdout).toMatch(/never passed on argv/i);
+    expect(stdout).toMatch(/\boss\b/);
+    expect(stdout).toMatch(/never accepted on argv/i);
+    expect(stdout).toMatch(/\bsetup\b/);
+    expect(stdout).toMatch(/\bstatus\b/);
+    expect(stdout).toMatch(/\buninstall\b/);
   });
 
   test("installer source never accepts secrets via argv and generates them locally", async () => {
