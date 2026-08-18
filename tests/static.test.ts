@@ -57,4 +57,17 @@ describe("serveStatic", () => {
       }
     }
   });
+
+  test("does not cache mutable Next route payloads", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "omp-static-cache-"));
+    mkdirSync(join(dir, "workspaces"));
+    writeFileSync(join(dir, "workspaces", "index.txt"), "route payload");
+    writeFileSync(join(dir, "chunk.js"), "chunk payload");
+
+    const route = await serveStatic(dir, "/workspaces/index.txt");
+    expect(route.headers.get("cache-control")).toBe("no-store");
+
+    const chunk = await serveStatic(dir, "/chunk.js");
+    expect(chunk.headers.get("cache-control")).toBe("public, max-age=3600");
+  });
 });

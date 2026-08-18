@@ -6,21 +6,18 @@ import type { WorktreeGroup } from "@/app/components/group-sessions";
 import { useDeactivateSession } from "@/app/components/use-sessions";
 import { Badge } from "@/components/ds/badge";
 import { Button } from "@/components/ui/button";
+import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function WorkspaceCounts({ worktree }: { worktree: WorktreeGroup }) {
   return (
-    <span className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-      <span className="sm:w-20">
-        <Badge variant="success" size="md" stretch>
-          {worktree.sessions.length} Live
-        </Badge>
-      </span>
-      <span className="sm:w-20">
-        <Badge variant="neutral" size="md" stretch>
-          {worktree.recentSessions.length} Recent
-        </Badge>
-      </span>
-    </span>
+    <TabsList aria-label={`Sessions in ${worktree.name}`} className="grid w-full grid-cols-2 sm:w-auto">
+      <TabsTrigger value="live" className="sm:w-20">
+        {worktree.sessions.length} Live
+      </TabsTrigger>
+      <TabsTrigger value="recent" className="sm:w-20">
+        {worktree.recentSessions.length} Recent
+      </TabsTrigger>
+    </TabsList>
   );
 }
 
@@ -88,41 +85,50 @@ export function WorkspaceSessions({
   openingId: string | null;
   onSelect: (sessionId: string) => void;
 }) {
-  if (worktree.sessions.length === 0 && worktree.recentSessions.length === 0) {
-    return null;
-  }
+  const panelClassName = "border-t border-border px-3 py-2";
 
   return (
-    <div
-      className="border-t border-border px-3 py-2"
-      aria-label={`Sessions in ${worktree.name}`}
-    >
-      <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
-        {worktree.sessions.map((session) => (
-          <LiveSessionRow
-            key={session.id}
-            session={session}
-            openingId={openingId}
-            onSelect={onSelect}
-          />
-        ))}
-        {worktree.recentSessions.map((session) => (
-          <li
-            key={session.id}
-            className="flex min-h-11 min-w-0 items-center gap-2 px-2"
-          >
-            <span
-              className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-              title={session.title}
-            >
-              {session.title}
-            </span>
-            <span className="w-20 shrink-0">
-              <Badge variant="neutral" size="xs" stretch>Recent</Badge>
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <>
+      <TabsContent value="live" className={panelClassName}>
+        {worktree.sessions.length > 0 ? (
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {worktree.sessions.map((session) => (
+              <LiveSessionRow
+                key={session.id}
+                session={session}
+                openingId={openingId}
+                onSelect={onSelect}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">No live sessions.</p>
+        )}
+      </TabsContent>
+      <TabsContent value="recent" className={panelClassName}>
+        {worktree.recentSessions.length > 0 ? (
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {worktree.recentSessions.map((session) => (
+              <li
+                key={session.id}
+                className="flex min-h-11 min-w-0 items-center gap-2 px-2"
+              >
+                <span
+                  className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                  title={session.title}
+                >
+                  {session.title}
+                </span>
+                <span className="w-20 shrink-0">
+                  <Badge variant="neutral" size="xs" stretch>Recent</Badge>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">No recent sessions.</p>
+        )}
+      </TabsContent>
+    </>
   );
 }

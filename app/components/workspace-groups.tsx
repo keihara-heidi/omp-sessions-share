@@ -26,6 +26,7 @@ import {
   WorktreeHeading,
   WorktreeToolbar,
 } from "@/components/ds/session";
+import { Tabs } from "@/components/ui/tabs";
 import { tildify } from "@/lib/utils";
 
 
@@ -45,31 +46,33 @@ function WorktreeSection({
   const deletable = group.kind === "repository" && worktree.path !== group.path;
   return (
     <WorktreeBlock label={`Worktree ${worktree.name}`}>
-      <WorktreeToolbar>
-        <WorktreeHeading
-          name={worktree.name}
-          branch={worktree.branch}
-          path={worktree.path !== group.path ? tildify(worktree.path) : undefined}
+      <Tabs defaultValue="live" className="gap-0">
+        <WorktreeToolbar>
+          <WorktreeHeading
+            name={worktree.name}
+            branch={worktree.branch}
+            path={worktree.path !== group.path ? tildify(worktree.path) : undefined}
+          />
+          <WorkspaceCounts worktree={worktree} />
+          <div
+            className={`grid w-full gap-2 sm:flex sm:w-auto ${deletable ? "grid-cols-2" : "grid-cols-1"}`}
+          >
+            <NewSessionButton worktree={worktree} />
+            {deletable ? (
+              <DeleteWorktreeButton group={group} worktree={worktree} />
+            ) : null}
+          </div>
+        </WorktreeToolbar>
+        <PullRequestSection
+          worktree={worktree}
+          enabled={expanded && group.kind === "repository" && Boolean(worktree.branch)}
         />
-        <WorkspaceCounts worktree={worktree} />
-        <div
-          className={`grid w-full gap-2 sm:flex sm:w-auto ${deletable ? "grid-cols-2" : "grid-cols-1"}`}
-        >
-          <NewSessionButton worktree={worktree} />
-          {deletable ? (
-            <DeleteWorktreeButton group={group} worktree={worktree} />
-          ) : null}
-        </div>
-      </WorktreeToolbar>
-      <PullRequestSection
-        worktree={worktree}
-        enabled={expanded && group.kind === "repository" && Boolean(worktree.branch)}
-      />
-      <WorkspaceSessions
-        worktree={worktree}
-        openingId={openingId}
-        onSelect={onSelect}
-      />
+        <WorkspaceSessions
+          worktree={worktree}
+          openingId={openingId}
+          onSelect={onSelect}
+        />
+      </Tabs>
     </WorktreeBlock>
   );
 }

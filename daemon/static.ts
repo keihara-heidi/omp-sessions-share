@@ -60,12 +60,14 @@ export function safeJoin(webRoot: string, pathname: string): string | null {
 async function fileResponse(filePath: string): Promise<Response | null> {
   const file = Bun.file(filePath);
   if (!(await file.exists())) return null;
-  const type = MIME[extOf(filePath)] ?? "application/octet-stream";
+  const ext = extOf(filePath);
+  const type = MIME[ext] ?? "application/octet-stream";
   return new Response(file, {
     headers: {
       "Content-Type": type,
-      "Cache-Control":
-        extOf(filePath) === ".html" ? "no-store" : "public, max-age=3600",
+      "Cache-Control": [".html", ".txt"].includes(ext)
+        ? "no-store"
+        : "public, max-age=3600",
       "X-Content-Type-Options": "nosniff",
     },
   });
