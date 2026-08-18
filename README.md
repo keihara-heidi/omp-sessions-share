@@ -25,7 +25,10 @@ Setup creates:
 - one persistent macOS LaunchAgent
 - one Tailscale Serve endpoint on HTTPS port `8443`
 - one private config at `~/.omp/agent/omp-sessions-share.json` with mode `0600`
+- one private dashboard SQLite database at `~/.omp/agent/omp-sessions-share.sqlite` with mode `0600` and WAL (`-wal` / `-shm` sidecars also `0600`)
 - PATH-first source-compatible launchers at `~/.local/bin/omp` and `~/.local/bin/omp-share`
+
+If `~/.omp/agent/omp-sessions-share-locations.json` already exists, it is imported once into SQLite and left on disk unchanged so you can roll back.
 
 No Vercel, Redis, cloud database, or central service.
 
@@ -37,6 +40,7 @@ No Vercel, Redis, cloud database, or central service.
 4. Select a live session.
 5. To start another session, expand a folder or repository and tap **Start** beside a worktree. The Mac opens a Terminal running OMP in that worktree. On a repository group, tap **New worktree** to create a sibling linked worktree with `git worktree` and start OMP there.
 6. Tap the remove button on a session to hide it and SIGTERM that session's OMP process. The IDE or terminal app is not closed. If another live dashboard session shares the same process, only the dashboard row is removed.
+7. After a Live row expires (15 seconds without a heartbeat) or is removed, it appears under **Recent** on its original worktree. Tap **Resume** to reopen that exact prior session in the same worktree. Native `/collab` starts automatically after the resumed session heartbeats. The browser never receives the host session JSONL path.
 
 Register a repository or directory before it has a live session:
 
@@ -51,7 +55,8 @@ Dashboard hierarchy:
 ```text
 Folder / Repository
 └── Worktree
-    └── Sessions
+    ├── Live
+    └── Recent
 ```
 
 Search is typo-tolerant and lets separate query terms match across repository names and paths, worktree or branch-like names, session titles, and session directories. super.engineering Shared Context branch groups and symlinked repository children are detected from their managed workspace paths.
@@ -61,6 +66,24 @@ Dashboard session and location changes arrive as complete snapshots through an a
 Groups start collapsed. Launching is limited to worktrees advertised by a current live session.
 
 The browser receives the collab link encrypted to a non-extractable RSA key generated on that device. The relay sees only OMP's existing end-to-end encrypted collab frames.
+
+## Development conventions
+
+- Fetch root server state once at the feature boundary and pass cohesive view models to rendering components. Do not add per-row queries for entities already present in the dashboard snapshot.
+- Use query hooks for independently fetched and cached server state. Use variable-driven mutation hooks for operations; pass IDs or paths to the mutation instead of binding an entity when the hook is created.
+- Consumers destructure and domain-alias only the mutation fields they use:
+
+```ts
+const {
+  mutate: resumeSession,
+  isPending: isResuming,
+} = useResumeRecentSession();
+
+resumeSession(recent.id);
+```
+
+- Extract `mutateAsync` instead when local work must await the operation. Do not extract both `mutate` and `mutateAsync` unless the component genuinely uses both.
+- Prefer names such as `resumeSession`, `deleteWorktree`, and `isDeletingWorktree` over generic `mutation.mutate()` / `mutation.isPending` expressions.
 
 ## Release policy
 
@@ -83,13 +106,16 @@ bun ~/.omp/plugins/node_modules/omp-sessions-share/setup/cli.ts uninstall
 omp plugin uninstall omp-sessions-share
 ```
 
+Uninstall removes the local daemon, Tailscale Serve, launchers, share config, the dashboard SQLite database (including WAL/SHM sidecars), and the legacy locations JSON.
+
 ## Security boundary
 
 - Dashboard and relay listen on loopback only.
 - Tailscale Serve is the only remote ingress.
 - Tailnet membership and dashboard password are required.
 - Host and cookie secrets never leave the Mac.
-- Session state is memory-only and disappears when the daemon restarts.
+- Live presence expires after 15 seconds without a host heartbeat. Remembered worktrees and Recent sessions persist in private SQLite; they do not disappear when the daemon restarts.
+- The browser never receives the host session JSONL path.
 - The public `my.omp.sh` origin serves only OMP's static browser client; session traffic connects to the private tailnet relay.
 
 ## License

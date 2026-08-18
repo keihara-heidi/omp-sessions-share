@@ -24,6 +24,15 @@ export type SessionSummary = {
   worktree: SessionWorktree;
 };
 
+/** Public recent-session row — never includes host-only sessionFile. */
+export type RecentSessionSummary = {
+  id: string;
+  title: string;
+  lastSeenAt: string;
+  group: SessionGroup;
+  worktree: SessionWorktree;
+};
+
 /** A worktree remembered by the dashboard even when it has no live sessions. */
 export type DashboardLocation = {
   group: SessionGroup;
@@ -34,6 +43,7 @@ export type DashboardLocation = {
 export type SessionDashboard = {
   sessions: SessionSummary[];
   locations: DashboardLocation[];
+  recentSessions: RecentSessionSummary[];
 };
 
 export type JoinRequestStatus = "pending" | "approved" | "denied" | "expired";
@@ -222,6 +232,25 @@ export function parseSessionSummary(v: unknown): SessionSummary | null {
   };
 }
 
+export function parseRecentSessionSummary(v: unknown): RecentSessionSummary | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!isValidId(o.id)) return null;
+  if (!isNonEmptyString(o.title, 256)) return null;
+  if (!isIsoTimestamp(o.lastSeenAt)) return null;
+  const group = parseSessionGroup(o.group);
+  if (!group) return null;
+  const worktree = parseSessionWorktree(o.worktree);
+  if (!worktree) return null;
+  return {
+    id: o.id,
+    title: o.title,
+    lastSeenAt: o.lastSeenAt,
+    group,
+    worktree,
+  };
+}
+
 export function parseJoinRequest(v: unknown): JoinRequest | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
@@ -250,14 +279,25 @@ export function parseJoinRequestResult(v: unknown): JoinRequestResult | null {
   return { ...base, encryptedLink: o.encryptedLink };
 }
 
-/** Host heartbeat body — lastSeenAt derived server-side. Optional pid is host-only. */
+/** Host heartbeat body — lastSeenAt derived server-side. Optional pid/sessionFile are host-only. */
 export type HostSessionHeartbeatInput = {
   id: string;
   title: string;
   cwd: string;
   startedAt: string;
   pid?: number;
+  /** Absolute host path to the session jsonl; never sent to browsers. */
+  sessionFile?: string;
 };
+
+/** Host-only path: absolute, bounded, no control chars, must end with .jsonl. */
+function isValidSessionFilePath(v: unknown): v is string {
+  if (typeof v !== "string") return false;
+  if (v.length === 0 || v.length > 1024) return false;
+  if (v.includes("\0") || v.includes("\n")) return false;
+  if (!v.startsWith("/")) return false;
+  return v.endsWith(".jsonl");
+}
 
 
 export function parseHostSessionHeartbeat(
@@ -277,12 +317,18 @@ export function parseHostSessionHeartbeat(
     rawPid <= 0x7fffffff
       ? rawPid
       : undefined;
+  let sessionFile: string | undefined;
+  if (o.sessionFile !== undefined) {
+    if (!isValidSessionFilePath(o.sessionFile)) return null;
+    sessionFile = o.sessionFile;
+  }
   return {
     id: o.id,
     title: o.title,
     cwd: o.cwd,
     startedAt: o.startedAt,
     ...(pid !== undefined ? { pid } : {}),
+    ...(sessionFile !== undefined ? { sessionFile } : {}),
   };
 }
 

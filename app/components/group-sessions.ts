@@ -1,6 +1,7 @@
 import Fuse from "fuse.js";
 import type {
   DashboardLocation,
+  RecentSessionSummary,
   SessionGroupKind,
   SessionSummary,
 } from "@/lib/contracts";
@@ -10,6 +11,8 @@ export type WorktreeGroup = {
   path: string;
   branch?: string;
   sessions: SessionSummary[];
+  /** Resumable non-live sessions remembered for this worktree, newest first. */
+  recentSessions: RecentSessionSummary[];
 };
 
 export type SessionGroup = {
@@ -22,6 +25,7 @@ export type SessionGroup = {
 type SearchItem = DashboardLocation & {
   key: string;
   session?: SessionSummary;
+  recent?: RecentSessionSummary;
   title: string;
   cwd: string;
 };
@@ -33,6 +37,7 @@ function locationKey(groupPath: string, worktreePath: string): string {
 function knownLocations(
   sessions: SessionSummary[],
   locations: DashboardLocation[],
+  recentSessions: RecentSessionSummary[],
 ): DashboardLocation[] {
   const byPath = new Map<string, DashboardLocation>();
   for (const location of locations) {
@@ -51,20 +56,44 @@ function knownLocations(
       lastSessionStartedAt,
     });
   }
+  // Recent-only worktrees surface too, ordered by their newest recent.
+  // Worktrees with live sessions or remembered locations keep their
+  // live-derived ordering timestamp untouched.
+  const liveKeys = new Set(byPath.keys());
+  for (const recent of recentSessions) {
+    const key = locationKey(recent.group.path, recent.worktree.path);
+    if (liveKeys.has(key)) continue;
+    const previous = byPath.get(key);
+    const lastSessionStartedAt =
+      previous && Date.parse(previous.lastSessionStartedAt) > Date.parse(recent.lastSeenAt)
+        ? previous.lastSessionStartedAt
+        : recent.lastSeenAt;
+    byPath.set(key, {
+      group: recent.group,
+      worktree: recent.worktree,
+      lastSessionStartedAt,
+    });
+  }
   return [...byPath.values()];
 }
 
 /**
- * Group remembered worktrees and their live sessions into repository/folder →
- * worktree → session hierarchy. Empty worktrees remain searchable and
- * actionable after their last session exits.
+ * Group remembered worktrees, their live sessions, and resumable recent
+ * sessions into repository/folder → worktree → session hierarchy. Empty
+ * worktrees remain searchable and actionable after their last session exits;
+ * recent sessions attach under their original worktree (never a global
+ * section) and surface recent-only worktrees.
  */
 export function groupSessions(
   sessions: SessionSummary[],
   query: string,
   locations: DashboardLocation[] = [],
+  recentSessions: RecentSessionSummary[] = [],
 ): SessionGroup[] {
-  const allLocations = knownLocations(sessions, locations);
+  // A session id that is currently live is never also shown as a recent.
+  const liveIds = new Set(sessions.map((session) => session.id));
+  const recents = recentSessions.filter((recent) => !liveIds.has(recent.id));
+  const allLocations = knownLocations(sessions, locations, recents);
   const sessionsByLocation = new Map<string, SessionSummary[]>();
   for (const session of sessions) {
     const key = locationKey(session.group.path, session.worktree.path);
@@ -72,20 +101,37 @@ export function groupSessions(
     current.push(session);
     sessionsByLocation.set(key, current);
   }
+  const recentsByLocation = new Map<string, RecentSessionSummary[]>();
+  for (const recent of recents) {
+    const key = locationKey(recent.group.path, recent.worktree.path);
+    const current = recentsByLocation.get(key) ?? [];
+    current.push(recent);
+    recentsByLocation.set(key, current);
+  }
 
   const items: SearchItem[] = allLocations.flatMap((location) => {
     const key = locationKey(location.group.path, location.worktree.path);
     const locationSessions = sessionsByLocation.get(key) ?? [];
-    if (locationSessions.length === 0) {
+    const locationRecents = recentsByLocation.get(key) ?? [];
+    if (locationSessions.length === 0 && locationRecents.length === 0) {
       return [{ ...location, key, title: "", cwd: "" }];
     }
-    return locationSessions.map((session) => ({
-      ...location,
-      key: `${key}\0${session.id}`,
-      session,
-      title: session.title,
-      cwd: session.cwd,
-    }));
+    return [
+      ...locationSessions.map((session) => ({
+        ...location,
+        key: `${key}\0${session.id}`,
+        session,
+        title: session.title,
+        cwd: session.cwd,
+      })),
+      ...locationRecents.map((recent) => ({
+        ...location,
+        key: `${key}\0${recent.id}`,
+        recent,
+        title: recent.title,
+        cwd: "",
+      })),
+    ];
   });
 
   const terms = query.trim().split(/\s+/).filter(Boolean);
@@ -148,12 +194,14 @@ export function groupSessions(
         path: worktree.path,
         ...(worktree.branch ? { branch: worktree.branch } : {}),
         sessions: [],
+        recentSessions: [],
       };
       worktreesByPath.set(key, groupedWorktree);
       worktreeStartedAt.set(key, Date.parse(item.lastSessionStartedAt));
       grouped.worktrees.push(groupedWorktree);
     }
     if (item.session) groupedWorktree.sessions.push(item.session);
+    if (item.recent) groupedWorktree.recentSessions.push(item.recent);
   }
 
   const latestSession = (a: SessionSummary, b: SessionSummary) =>
@@ -163,6 +211,9 @@ export function groupSessions(
   for (const group of result) {
     for (const worktree of group.worktrees) {
       worktree.sessions.sort(latestSession);
+      worktree.recentSessions.sort(
+        (a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt),
+      );
       const branch = worktree.sessions.find((session) => session.worktree.branch)
         ?.worktree.branch;
       if (branch) worktree.branch = branch;

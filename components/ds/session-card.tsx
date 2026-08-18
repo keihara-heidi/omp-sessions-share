@@ -8,26 +8,33 @@ import {
   TypographyPath,
 } from "@/components/ui/typography";
 
+export type SessionPresence = "live" | "stale" | "recent";
+
 export function SessionCard({
-  stale,
+  presence,
   disabled,
   busy,
   onSelect,
-  onRemove,
-  removeLabel,
-  removing,
+  removal,
+  actionLabel = "Join",
+  busyLabel = "Opening…",
   title,
   path,
   branch,
   meta,
 }: {
-  stale: boolean;
+  presence: SessionPresence;
   disabled: boolean;
   busy: boolean;
   onSelect: () => void;
-  onRemove: () => void;
-  removeLabel: string;
-  removing: boolean;
+  /** Optional removal rail; omit for cards without a remove action. */
+  removal?: {
+    onRemove: () => void;
+    label: string;
+    removing: boolean;
+  };
+  actionLabel?: string;
+  busyLabel?: string;
   title: string;
   path: string;
   branch?: string;
@@ -45,14 +52,14 @@ export function SessionCard({
         <span className="flex w-full min-w-0 items-center gap-2">
           <span
             aria-hidden
-            data-stale={stale || undefined}
-            className="size-2 shrink-0 rounded-full bg-ok ring-[3px] ring-ok/25 data-stale:bg-dim data-stale:ring-0"
+            data-presence={presence}
+            className="size-2 shrink-0 rounded-full bg-ok ring-[3px] ring-ok/25 data-[presence=stale]:bg-dim data-[presence=stale]:ring-0 data-[presence=recent]:border data-[presence=recent]:border-dim data-[presence=recent]:bg-transparent data-[presence=recent]:ring-0"
           />
           <span className="min-w-0 flex-1 overflow-hidden [&_h4]:block [&_h4]:truncate">
             <TypographyH4>{title}</TypographyH4>
           </span>
           <span className="shrink-0 text-xs font-medium text-primary">
-            {busy ? "Opening…" : "Join"}
+            {busy ? busyLabel : actionLabel}
           </span>
         </span>
         <span className="flex w-full min-w-0 items-center gap-1.5">
@@ -71,24 +78,26 @@ export function SessionCard({
         ) : null}
         <TypographyMuted aria-live="polite">{meta}</TypographyMuted>
       </button>
-      <div className="flex shrink-0 items-stretch border-l border-border">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-auto min-h-11 min-w-11 rounded-none text-dim hover:bg-destructive/10 hover:text-destructive"
-          onClick={onRemove}
-          disabled={removing || disabled}
-          aria-label={removeLabel}
-          title="Mark inactive"
-        >
-          {removing ? (
-            <LoaderCircle aria-hidden className="animate-spin" />
-          ) : (
-            <CircleMinus aria-hidden />
-          )}
-        </Button>
-      </div>
+      {removal ? (
+        <div className="flex shrink-0 items-stretch border-l border-border">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-auto min-h-11 min-w-11 rounded-none text-dim hover:bg-destructive/10 hover:text-destructive"
+            onClick={removal.onRemove}
+            disabled={removal.removing || disabled}
+            aria-label={removal.label}
+            title="Mark inactive"
+          >
+            {removal.removing ? (
+              <LoaderCircle aria-hidden className="animate-spin" />
+            ) : (
+              <CircleMinus aria-hidden />
+            )}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

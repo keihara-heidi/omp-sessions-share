@@ -1,6 +1,7 @@
 /** Local omp-sessions-share daemon: API + static dashboard + collab relay. */
 
 import {
+  getDashboardDbPath,
   getDashboardLocationsPath,
   getShareConfigPath,
   loadShareConfigOrThrow,
@@ -18,7 +19,9 @@ import {
 import { MacSleepInhibitor } from "./sleep-inhibitor";
 import { resolveWebRoot, serveStatic } from "./static";
 import {
-  configureDashboardLocationPersistence,
+  closeDashboardPersistence,
+  configureDashboardDb,
+  flushDashboardDb,
   subscribeSessionChanges,
 } from "./store";
 
@@ -26,7 +29,7 @@ async function main(): Promise<void> {
   const configPath =
     process.env.OMP_SESSIONS_SHARE_CONFIG?.trim() || getShareConfigPath();
   const config: ShareConfig = await loadShareConfigOrThrow(configPath);
-  configureDashboardLocationPersistence(getDashboardLocationsPath());
+  configureDashboardDb(getDashboardDbPath(), getDashboardLocationsPath());
   const { hostname, port } = listenEndpoint(config);
   const webRoot = resolveWebRoot();
 
@@ -87,6 +90,16 @@ async function main(): Promise<void> {
     unsubscribeSessions();
     sleepInhibitor.stop();
     shutdownRelay();
+    try {
+      flushDashboardDb();
+    } catch {
+      // still close
+    }
+    try {
+      closeDashboardPersistence();
+    } catch {
+      // best-effort shutdown
+    }
     server.stop(true);
   }
 

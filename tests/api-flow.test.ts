@@ -10,9 +10,12 @@ import {
 } from "../daemon/api";
 import { DASHBOARD_COOKIE_NAME } from "../lib/auth";
 import {
+  configureDashboardDb,
   deactivateSession,
   getSessionDashboard,
+  listRecentSessions,
   listSessions,
+  removeDashboardLocation,
   resetStoreForTests,
   upsertSession,
 } from "../daemon/store";
@@ -115,7 +118,31 @@ describe("buildOmpTerminalArgs", () => {
     const args = buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp");
 
     expect(args[4]).not.toContain("/usr/bin/base64");
+    expect(args[4]).not.toContain("--resume");
     expect(args.at(-1)).toBe("/tmp/omp");
+  });
+
+  test("resumes with osascript argv quoted --resume path", () => {
+    const sessionFile = "/Users/host/.omp/sessions/abc.jsonl";
+    const args = buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp", {
+      resumeSessionFile: sessionFile,
+    });
+
+    expect(args[4]).toContain("--resume");
+    expect(args[4]).toContain("quoted form of item 3 of argv");
+    expect(args[4]).not.toContain("/usr/bin/base64");
+    expect(args[4]).not.toContain(sessionFile);
+    expect(args.at(-1)).toBe(sessionFile);
+    expect(args).not.toContain(Buffer.from(sessionFile).toString("base64"));
+  });
+
+  test("rejects simultaneous prompt and resumeSessionFile", () => {
+    expect(() =>
+      buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp", {
+        prompt: "hi",
+        resumeSessionFile: "/tmp/s.jsonl",
+      }),
+    ).toThrow(/mutually exclusive/);
   });
 });
 
@@ -359,7 +386,11 @@ describe("local daemon auth gates", () => {
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        data: { sessions: unknown[]; locations: Array<{ worktree: { path: string } }> };
+        data: {
+          sessions: unknown[];
+          locations: Array<{ worktree: { path: string } }>;
+          recentSessions: unknown[];
+        };
       };
       expect(body.data.sessions).toEqual([]);
       expect(body.data.locations.map((location) => location.worktree.path).sort()).toEqual(
@@ -391,7 +422,7 @@ describe("local daemon auth gates", () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        data: { sessions: [], locations: [] },
+        data: { sessions: [], locations: [], recentSessions: [] },
       });
       expect(listSessions()).toEqual([]);
       expect(getSessionDashboard().locations).toEqual([]);
@@ -419,7 +450,7 @@ describe("local daemon auth gates", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      data: { sessions: [], locations: [] },
+      data: { sessions: [], locations: [], recentSessions: [] },
     });
   });
 
@@ -813,9 +844,13 @@ describe("GET /api/events SSE", () => {
       .find((line) => line.startsWith("data: "));
     expect(initialDataLine).toBeTruthy();
     const initialPayload = JSON.parse(initialDataLine!.slice("data: ".length)) as {
-      data: { sessions: unknown[]; locations: unknown[] };
+      data: { sessions: unknown[]; locations: unknown[]; recentSessions: unknown[] };
     };
-    expect(initialPayload.data).toEqual({ sessions: [], locations: [] });
+    expect(initialPayload.data).toEqual({
+      sessions: [],
+      locations: [],
+      recentSessions: [],
+    });
 
     // Meaningful host changes push the complete dashboard without a follow-up fetch.
     upsertSession({
@@ -833,6 +868,7 @@ describe("GET /api/events SSE", () => {
       data: {
         sessions: Array<{ id: string }>;
         locations: Array<{ worktree: { path: string } }>;
+        recentSessions: unknown[];
       };
     };
     expect(nextPayload.data.sessions.some((session) => session.id === "sse-session-1"))
@@ -1114,8 +1150,11 @@ describe("pull request readiness and repair launch", () => {
       ),
       config,
       "/api/worktrees/pr-task",
-      async (path, initialPrompt) => {
-        launched.push({ path, prompt: initialPrompt });
+      async (path, init) => {
+        launched.push({
+          path,
+          prompt: typeof init === "string" ? init : init?.prompt,
+        });
       },
       async () => {
         throw new Error("must not create");
@@ -1155,8 +1194,11 @@ describe("pull request readiness and repair launch", () => {
       ),
       config,
       "/api/worktrees/pr-task",
-      async (path, initialPrompt) => {
-        launched.push({ path, prompt: initialPrompt });
+      async (path, init) => {
+        launched.push({
+          path,
+          prompt: typeof init === "string" ? init : init?.prompt,
+        });
       },
       async () => {
         throw new Error("must not create");
@@ -1193,11 +1235,11 @@ describe("pull request readiness and repair launch", () => {
       ),
       config,
       "/api/sessions/launch",
-      async (worktreePath, initialPrompt) => {
+      async (worktreePath, init) => {
         calls.push({
           path: worktreePath,
-          prompt: initialPrompt,
-          argc: initialPrompt === undefined ? 1 : 2,
+          prompt: typeof init === "string" ? init : init?.prompt,
+          argc: init === undefined ? 1 : 2,
         });
       },
     );
@@ -1225,8 +1267,11 @@ describe("pull request readiness and repair launch", () => {
       ),
       config,
       "/api/sessions/launch",
-      async (path, initialPrompt) => {
-        calls.push({ path, prompt: initialPrompt });
+      async (path, init) => {
+        calls.push({
+          path,
+          prompt: typeof init === "string" ? init : init?.prompt,
+        });
       },
     );
 
@@ -1251,8 +1296,8 @@ describe("pull request readiness and repair launch", () => {
       ),
       config,
       "/api/sessions/launch",
-      async (_path, initialPrompt) => {
-        prompts.push(initialPrompt);
+      async (_path, init) => {
+        prompts.push(typeof init === "string" ? init : init?.prompt);
       },
     );
 
@@ -1284,5 +1329,334 @@ describe("pull request readiness and repair launch", () => {
 
     expect(res?.status).toBe(400);
     expect(launched).toBe(false);
+  });
+});
+
+describe("recent session resume", () => {
+  const tempRoots: string[] = [];
+
+  afterEach(() => {
+    for (const root of tempRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function openTempDashboard(): string {
+    const root = mkdtempSync(join(tmpdir(), "omp-api-resume-"));
+    tempRoots.push(root);
+    configureDashboardDb(join(root, "dashboard.sqlite"));
+    return root;
+  }
+
+  function writeSessionFile(root: string, name = "session.jsonl"): string {
+    const sessionFile = join(root, name);
+    writeFileSync(sessionFile, '{"type":"session"}\n');
+    return sessionFile;
+  }
+
+  function seedRecent(sessionId = "resume_seed_1"): {
+    resumeId: string;
+    sessionId: string;
+    sessionFile: string;
+    worktreePath: string;
+    cwd: string;
+  } {
+    const root = openTempDashboard();
+    const cwd = mkdtempSync(join(root, "wt-"));
+    const sessionFile = writeSessionFile(root);
+    const session = upsertSession({
+      id: sessionId,
+      title: "Remembered",
+      cwd,
+      startedAt: "2026-08-12T00:00:00.000Z",
+      sessionFile,
+    });
+    expect(deactivateSession(session.id)).toBe(true);
+    const resumeId = listRecentSessions()[0]?.id;
+    if (!resumeId) throw new Error("missing resume id");
+    return {
+      resumeId,
+      sessionId: session.id,
+      sessionFile,
+      worktreePath: session.worktree.path,
+      cwd,
+    };
+  }
+
+  test("cookie resume launches exact stored worktree and sessionFile", async () => {
+    const seeded = seedRecent();
+    const cookie = await loginCookie();
+    const launches: Array<{ path: string; init?: unknown }> = [];
+    const path = `/api/recent-sessions/${seeded.resumeId}/resume`;
+    const res = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { cookie },
+      }),
+      config,
+      path,
+      async (worktreePath, init) => {
+        launches.push({ path: worktreePath, init });
+      },
+    );
+
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("cache-control")).toBe("no-store");
+    const body = await res!.json();
+    expect(body).toEqual({ data: { ok: true } });
+    expect(JSON.stringify(body)).not.toContain("sessionFile");
+    expect(JSON.stringify(body)).not.toContain(seeded.sessionFile);
+    expect(launches).toEqual([
+      {
+        path: seeded.worktreePath,
+        init: { resumeSessionFile: seeded.sessionFile },
+      },
+    ]);
+  });
+
+  test("host bearer alone cannot resume", async () => {
+    const seeded = seedRecent();
+    const path = `/api/recent-sessions/${seeded.resumeId}/resume`;
+    let launched = false;
+    const res = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${config.hostToken}` },
+      }),
+      config,
+      path,
+      async () => {
+        launched = true;
+      },
+    );
+    expect(res?.status).toBe(401);
+    expect(launched).toBe(false);
+  });
+
+  test("unknown resumeId is a generic 404", async () => {
+    openTempDashboard();
+    const cookie = await loginCookie();
+    const path = "/api/recent-sessions/does_not_exist/resume";
+    let launched = false;
+    const res = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { cookie },
+      }),
+      config,
+      path,
+      async () => {
+        launched = true;
+      },
+    );
+    expect(res?.status).toBe(404);
+    expect(await res!.json()).toEqual({ error: "Session not found" });
+    expect(launched).toBe(false);
+  });
+
+  test("live session rejects resume with 409", async () => {
+    const root = openTempDashboard();
+    const cwd = mkdtempSync(join(root, "wt-"));
+    const sessionFile = writeSessionFile(root);
+    upsertSession({
+      id: "still_live",
+      title: "Live",
+      cwd,
+      startedAt: "2026-08-12T00:00:00.000Z",
+      sessionFile,
+    });
+    deactivateSession("still_live");
+    const resumeId = listRecentSessions()[0]!.id;
+    upsertSession({
+      id: "still_live",
+      title: "Live again",
+      cwd,
+      startedAt: "2026-08-12T00:00:00.000Z",
+      sessionFile,
+    });
+
+    const cookie = await loginCookie();
+    const path = `/api/recent-sessions/${resumeId}/resume`;
+    let launched = false;
+    const res = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { cookie },
+      }),
+      config,
+      path,
+      async () => {
+        launched = true;
+      },
+    );
+    expect(res?.status).toBe(409);
+    expect(launched).toBe(false);
+  });
+
+  test("missing jsonl rejects without launching", async () => {
+    const root = openTempDashboard();
+    const cwd = mkdtempSync(join(root, "wt-"));
+    const sessionFile = join(root, "missing.jsonl");
+    upsertSession({
+      id: "missing_file",
+      title: "Gone file",
+      cwd,
+      startedAt: "2026-08-12T00:00:00.000Z",
+      sessionFile,
+    });
+    deactivateSession("missing_file");
+    const resumeId = listRecentSessions()[0]!.id;
+    const cookie = await loginCookie();
+    const path = `/api/recent-sessions/${resumeId}/resume`;
+    let launched = false;
+    const res = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { cookie },
+      }),
+      config,
+      path,
+      async () => {
+        launched = true;
+      },
+    );
+    expect(res?.status).toBe(404);
+    expect(launched).toBe(false);
+    expect(JSON.stringify(await res!.json())).not.toContain(sessionFile);
+  });
+
+  test("nonregular session path rejects without launching", async () => {
+    const root = openTempDashboard();
+    const cwd = mkdtempSync(join(root, "wt-"));
+    const sessionFile = join(root, "dir.jsonl");
+    mkdirSync(sessionFile);
+    upsertSession({
+      id: "dir_file",
+      title: "Dir not file",
+      cwd,
+      startedAt: "2026-08-12T00:00:00.000Z",
+      sessionFile,
+    });
+    deactivateSession("dir_file");
+    const resumeId = listRecentSessions()[0]!.id;
+    const cookie = await loginCookie();
+    const path = `/api/recent-sessions/${resumeId}/resume`;
+    let launched = false;
+    const res = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { cookie },
+      }),
+      config,
+      path,
+      async () => {
+        launched = true;
+      },
+    );
+    expect(res?.status).toBe(404);
+    expect(launched).toBe(false);
+  });
+
+  test("missing worktree directory rejects resume", async () => {
+    const seeded = seedRecent("missing_wt");
+    rmSync(seeded.cwd, { recursive: true, force: true });
+    const cookie = await loginCookie();
+    const path = `/api/recent-sessions/${seeded.resumeId}/resume`;
+    let launched = false;
+    const res = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { cookie },
+      }),
+      config,
+      path,
+      async () => {
+        launched = true;
+      },
+    );
+    expect(res?.status).toBe(404);
+    expect(launched).toBe(false);
+  });
+
+  test("unadvertised worktree rejects after location removal cascade", async () => {
+    const seeded = seedRecent("unadvertised");
+    const location = getSessionDashboard().locations[0]!;
+    expect(
+      removeDashboardLocation(location.group.path, location.worktree.path),
+    ).toBe(true);
+    expect(listRecentSessions()).toEqual([]);
+
+    const cookie = await loginCookie();
+    const path = `/api/recent-sessions/${seeded.resumeId}/resume`;
+    let launched = false;
+    const res = await handleApi(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { cookie },
+      }),
+      config,
+      path,
+      async () => {
+        launched = true;
+      },
+    );
+    expect(res?.status).toBe(404);
+    expect(launched).toBe(false);
+  });
+
+  test("concurrent resume posts spawn once", async () => {
+    const seeded = seedRecent("concurrent");
+    const cookie = await loginCookie();
+    const path = `/api/recent-sessions/${seeded.resumeId}/resume`;
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let launches = 0;
+    const launch = async () => {
+      launches += 1;
+      await gate;
+    };
+
+    const req = () =>
+      handleApi(
+        new Request(`http://local${path}`, {
+          method: "POST",
+          headers: { cookie },
+        }),
+        config,
+        path,
+        launch,
+      );
+
+    const p1 = req();
+    for (let i = 0; i < 20 && launches === 0; i++) {
+      await Bun.sleep(1);
+    }
+    expect(launches).toBe(1);
+    const p2 = req();
+    const second = await p2;
+    expect(second?.status).toBe(409);
+    release();
+    const first = await p1;
+    expect(first?.status).toBe(200);
+    expect(launches).toBe(1);
+  });
+
+  test("dashboard prune of deleted worktree drops resume rows via store", async () => {
+    const seeded = seedRecent("prune_resume");
+    expect(listRecentSessions().length).toBe(1);
+    rmSync(seeded.cwd, { recursive: true, force: true });
+
+    const cookie = await loginCookie();
+    const res = await api(
+      new Request("http://local/api/dashboard", { headers: { cookie } }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: { sessions: [], locations: [], recentSessions: [] },
+    });
+    expect(listRecentSessions()).toEqual([]);
   });
 });

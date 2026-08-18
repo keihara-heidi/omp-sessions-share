@@ -54,6 +54,8 @@ type SessionHeartbeat = {
 	cwd: string;
 	startedAt: string;
 	pid: number;
+	/** Absolute host path to the session jsonl; host-only, never logged. */
+	sessionFile?: string;
 };
 
 type ApiOk<T> = { data: T };
@@ -95,6 +97,8 @@ type SessionRuntime = {
 	startedAt: string;
 	cwd: string;
 	title: string;
+	/** Exact session jsonl path when known; never derived from cwd. */
+	sessionFile?: string;
 	ctx: ExtensionContext;
 	pollTimer?: Timer;
 	polling: boolean;
@@ -521,6 +525,16 @@ function sessionCwdOf(ctx: ExtensionContext): string {
 	return worktree || ctx.cwd;
 }
 
+/** Exact session jsonl from OMP when present; never derived from cwd or logged. */
+export function sessionFileOf(ctx: ExtensionContext): string | undefined {
+	const manager = ctx.sessionManager as {
+		getSessionFile?: () => unknown;
+	};
+	const raw = manager.getSessionFile?.();
+	if (typeof raw !== "string") return undefined;
+	const exact = raw.trim();
+	return exact.length > 0 ? exact : undefined;
+}
 
 function notifyError(ctx: ExtensionContext, message: string): void {
 	const now = Date.now();
@@ -558,10 +572,13 @@ function clearRuntime(): void {
 
 function ensureRuntime(ctx: ExtensionContext): SessionRuntime {
 	const sessionId = ctx.sessionManager.getSessionId();
+	const sessionFile = sessionFileOf(ctx);
 	if (runtime && runtime.sessionId === sessionId) {
 		runtime.ctx = ctx;
 		runtime.cwd = sessionCwdOf(ctx);
 		runtime.title = sessionTitleOf(ctx);
+		if (sessionFile !== undefined) runtime.sessionFile = sessionFile;
+		else delete runtime.sessionFile;
 		return runtime;
 	}
 	stopPoll();
@@ -570,6 +587,7 @@ function ensureRuntime(ctx: ExtensionContext): SessionRuntime {
 		startedAt: new Date().toISOString(),
 		cwd: sessionCwdOf(ctx),
 		title: sessionTitleOf(ctx),
+		...(sessionFile !== undefined ? { sessionFile } : {}),
 		ctx,
 		prompted: new Set(),
 		busy: new Set(),
@@ -599,6 +617,9 @@ async function pollOnce(rt: SessionRuntime): Promise<void> {
 	try {
 		rt.title = sessionTitleOf(rt.ctx);
 		rt.cwd = sessionCwdOf(rt.ctx);
+		const sessionFile = sessionFileOf(rt.ctx);
+		if (sessionFile !== undefined) rt.sessionFile = sessionFile;
+		else delete rt.sessionFile;
 		const now = Date.now();
 		if (now - rt.lastHeartbeatAt >= 5_000) {
 			const heartbeat = await hostApi<unknown>("/api/host/sessions", {
@@ -609,6 +630,7 @@ async function pollOnce(rt: SessionRuntime): Promise<void> {
 					cwd: rt.cwd,
 					startedAt: rt.startedAt,
 					pid: process.pid,
+					...(sessionFile !== undefined ? { sessionFile } : {}),
 				} satisfies SessionHeartbeat),
 			});
 			if (!heartbeat.ok) notifyError(rt.ctx, `Share heartbeat failed: ${heartbeat.error}`);

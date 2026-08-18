@@ -18,12 +18,12 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 
 export function NewSessionButton({ worktree }: { worktree: WorktreeGroup }) {
-  const launch = useLaunchSession(worktree);
+  const { mutate: launchSession, isPending: isLaunching } = useLaunchSession();
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
 
   const setDialogOpen = (next: boolean) => {
-    if (launch.isPending) return;
+    if (isLaunching) return;
     setOpen(next);
     if (!next) setPrompt("");
   };
@@ -54,7 +54,7 @@ export function NewSessionButton({ worktree }: { worktree: WorktreeGroup }) {
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Task prompt"
           aria-label="Task prompt"
-          disabled={launch.isPending}
+          disabled={isLaunching}
         />
         <DialogFooter>
           <Button
@@ -62,7 +62,7 @@ export function NewSessionButton({ worktree }: { worktree: WorktreeGroup }) {
             variant="outline"
             size="touch"
             onClick={() => setDialogOpen(false)}
-            disabled={launch.isPending}
+            disabled={isLaunching}
           >
             Cancel
           </Button>
@@ -70,17 +70,23 @@ export function NewSessionButton({ worktree }: { worktree: WorktreeGroup }) {
             type="button"
             size="touch"
             onClick={() =>
-              launch.mutate(prompt.trim() === "" ? undefined : prompt, {
-                onSuccess: () => {
-                  setPrompt("");
-                  setOpen(false);
+              launchSession(
+                {
+                  worktreePath: worktree.path,
+                  ...(prompt.trim() === "" ? {} : { prompt }),
                 },
-              })
+                {
+                  onSuccess: () => {
+                    setPrompt("");
+                    setOpen(false);
+                  },
+                },
+              )
             }
-            disabled={launch.isPending}
+            disabled={isLaunching}
           >
-            <BusyIcon busy={launch.isPending} idle={<Play aria-hidden />} />
-            {launch.isPending ? "Starting…" : "Start"}
+            <BusyIcon busy={isLaunching} idle={<Play aria-hidden />} />
+            {isLaunching ? "Starting…" : "Start"}
           </Button>
         </DialogFooter>
       </DialogContent>

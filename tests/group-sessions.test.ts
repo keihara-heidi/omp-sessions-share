@@ -3,7 +3,10 @@ import {
   groupSessions,
   type SessionGroup as HierarchyGroup,
 } from "../app/components/group-sessions";
-import type { SessionSummary } from "../lib/contracts";
+import type {
+  RecentSessionSummary,
+  SessionSummary,
+} from "../lib/contracts";
 
 function session(
   partial: Pick<
@@ -21,6 +24,12 @@ function session(
 function ids(groups: HierarchyGroup[]): string[] {
   return groups.flatMap((g) =>
     g.worktrees.flatMap((w) => w.sessions.map((s) => s.id)),
+  );
+}
+
+function recentIds(groups: HierarchyGroup[]): string[] {
+  return groups.flatMap((g) =>
+    g.worktrees.flatMap((w) => w.recentSessions.map((r) => r.id)),
   );
 }
 
@@ -273,5 +282,154 @@ describe("groupSessions", () => {
     // filtered path also keeps original ids
     const filtered = groupSessions(all, "polish");
     expect(ids(filtered)).toEqual(["s-main-new"]);
+  });
+});
+
+describe("groupSessions recent sessions", () => {
+  const repoA = {
+    kind: "repository" as const,
+    name: "omp",
+    path: "/Users/dev/omp",
+  };
+  const mainWt = { name: "omp", path: "/Users/dev/omp", branch: "main" };
+  const featureWt = {
+    name: "feature-x",
+    path: "/Users/dev/worktrees/feature-x",
+    branch: "feat/grouping",
+  };
+  const archiveWt = { name: "archive", path: "/Users/dev/worktrees/archive" };
+
+  const sMain = session({
+    id: "s-main",
+    title: "UI polish",
+    cwd: "/Users/dev/omp/app",
+    lastSeenAt: "2026-08-12T03:00:00.000Z",
+    group: repoA,
+    worktree: mainWt,
+  });
+
+  function recent(
+    partial: Pick<RecentSessionSummary, "id" | "title" | "lastSeenAt"> &
+      Partial<Pick<RecentSessionSummary, "group" | "worktree">>,
+  ): RecentSessionSummary {
+    return { group: repoA, worktree: mainWt, ...partial };
+  }
+
+  const rMainOld = recent({
+    id: "r-main-old",
+    title: "Fix daemon crash",
+    lastSeenAt: "2026-08-10T01:00:00.000Z",
+  });
+  const rMainNew = recent({
+    id: "r-main-new",
+    title: "Write migration",
+    lastSeenAt: "2026-08-11T05:00:00.000Z",
+  });
+  const rArchive = recent({
+    id: "r-archive",
+    title: "Spelunk old logs",
+    lastSeenAt: "2026-08-09T12:00:00.000Z",
+    worktree: archiveWt,
+  });
+
+  test("attaches recents under their original group and worktree", () => {
+    const groups = groupSessions([sMain], "", [], [rMainOld, rMainNew]);
+    expect(groups).toHaveLength(1);
+    const main = groups[0]!.worktrees.find((w) => w.path === mainWt.path)!;
+    expect(main.sessions.map((s) => s.id)).toEqual(["s-main"]);
+    expect(main.recentSessions.map((r) => r.id).sort()).toEqual(
+      ["r-main-new", "r-main-old"].sort(),
+    );
+    // no global section: every recent lives inside a group's worktree
+    expect(recentIds(groups).sort()).toEqual(
+      ["r-main-new", "r-main-old"].sort(),
+    );
+  });
+
+  test("includes recent-only worktrees without live sessions or locations", () => {
+    const groups = groupSessions([sMain], "", [], [rArchive]);
+    const omp = groups.find((g) => g.path === repoA.path)!;
+    const archive = omp.worktrees.find((w) => w.path === archiveWt.path)!;
+    expect(archive.sessions).toEqual([]);
+    expect(archive.recentSessions.map((r) => r.id)).toEqual(["r-archive"]);
+  });
+
+  test("recent-only input still produces hierarchy", () => {
+    const groups = groupSessions([], "", [], [rArchive]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.path).toBe(repoA.path);
+    expect(recentIds(groups)).toEqual(["r-archive"]);
+  });
+
+  test("sorts recents by lastSeenAt descending within a worktree", () => {
+    const groups = groupSessions([], "", [], [rMainOld, rMainNew]);
+    const main = groups[0]!.worktrees.find((w) => w.path === mainWt.path)!;
+    expect(main.recentSessions.map((r) => r.id)).toEqual([
+      "r-main-new",
+      "r-main-old",
+    ]);
+  });
+
+  test("search matches recent titles and keeps only matching recents", () => {
+    const groups = groupSessions(
+      [sMain],
+      "migration",
+      [],
+      [rMainOld, rMainNew],
+    );
+    expect(recentIds(groups)).toEqual(["r-main-new"]);
+    expect(ids(groups)).toEqual([]);
+  });
+
+  test("group and worktree matches include recents via inheritance", () => {
+    const byGroup = groupSessions([sMain], "omp", [], [rMainNew, rArchive]);
+    expect(recentIds(byGroup).sort()).toEqual(
+      ["r-archive", "r-main-new"].sort(),
+    );
+    const byWorktree = groupSessions([sMain], "archive", [], [
+      rMainNew,
+      rArchive,
+    ]);
+    expect(recentIds(byWorktree)).toEqual(["r-archive"]);
+    expect(ids(byWorktree)).toEqual([]);
+  });
+
+  test("drops recents whose id is already live", () => {
+    const ghost = recent({
+      id: "s-main",
+      title: "UI polish",
+      lastSeenAt: "2026-08-12T02:00:00.000Z",
+    });
+    const groups = groupSessions([sMain], "", [], [ghost, rMainOld]);
+    expect(recentIds(groups)).toEqual(["r-main-old"]);
+    expect(ids(groups)).toEqual(["s-main"]);
+  });
+
+  test("live ordering semantics unaffected by recent heartbeats", () => {
+    // Recents in a live worktree never bump its ordering timestamp.
+    const featureSession = session({
+      id: "s-feature",
+      title: "Grouping work",
+      cwd: featureWt.path,
+      lastSeenAt: "2026-08-12T02:00:00.000Z",
+      group: repoA,
+      worktree: featureWt,
+    });
+    const noisy = recent({
+      id: "r-noisy",
+      title: "Very recent recent",
+      lastSeenAt: "2026-08-12T09:00:00.000Z",
+      worktree: featureWt,
+    });
+    const before = groupSessions([sMain, featureSession], "", []);
+    const after = groupSessions([sMain, featureSession], "", [], [noisy]);
+    expect(after[0]!.worktrees.map((w) => w.path)).toEqual(
+      before[0]!.worktrees.map((w) => w.path),
+    );
+  });
+
+  test("worktrees keep empty recentSessions when none provided", () => {
+    const groups = groupSessions([sMain], "");
+    expect(groups[0]!.worktrees[0]!.recentSessions).toEqual([]);
   });
 });

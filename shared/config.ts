@@ -38,6 +38,11 @@ export function getDashboardLocationsPath(root = agentDir()): string {
   return join(root, "omp-sessions-share-locations.json");
 }
 
+/** Private dashboard SQLite DB path (locations + session resumes). */
+export function getDashboardDbPath(root = agentDir()): string {
+  return join(root, "omp-sessions-share.sqlite");
+}
+
 function isNonEmptyString(v: unknown, max: number): v is string {
   return typeof v === "string" && v.length > 0 && v.length <= max;
 }

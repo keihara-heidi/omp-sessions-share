@@ -1,15 +1,14 @@
 "use client";
 
-import type { SessionSummary } from "@/lib/contracts";
 import { useJoinSession } from "./use-join-session";
 
 export default function JoinSession({
-  session,
+  sessionId,
   onDone,
 }: {
-  session: SessionSummary;
+  sessionId: string;
   onDone: () => void;
 }) {
-  useJoinSession(session.id, onDone);
+  useJoinSession(sessionId, onDone);
   return null;
 }

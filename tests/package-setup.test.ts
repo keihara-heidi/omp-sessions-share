@@ -7,6 +7,7 @@ import {
   DEFAULT_LISTEN_HOST,
   DEFAULT_LISTEN_PORT,
   DEFAULT_LOCAL_ORIGIN,
+  getDashboardDbPath,
   getDashboardLocationsPath,
   getShareConfigPath,
   listenEndpoint,
@@ -395,6 +396,32 @@ describe("packaged path resolution fixtures", () => {
     expect(getDashboardLocationsPath()).toBe(
       path.join(agent, "omp-sessions-share-locations.json"),
     );
+    expect(getDashboardDbPath()).toBe(path.join(agent, "omp-sessions-share.sqlite"));
     expect(getShareConfigPath().startsWith(outside)).toBe(false);
+    expect(getDashboardDbPath().startsWith(outside)).toBe(false);
+  });
+
+  test("uninstall removes share config, locations JSON, and sqlite sidecars", async () => {
+    const installSrc = await readFile(path.join(ROOT, "setup/install.ts"), "utf8");
+    // Recursive daemon/shared runtime copy stays package-local; uninstall must not rewrite it.
+    expect(installSrc).toMatch(/await cp\(src,\s*path\.join\(staging,\s*name\),\s*\{\s*recursive:\s*true\s*\}\)/);
+    expect(installSrc).toMatch(/getDashboardDbPath/);
+    expect(installSrc).toMatch(/await rm\(getShareConfigPath\(\),\s*\{\s*force:\s*true\s*\}\)/);
+    expect(installSrc).toMatch(/await rm\(getDashboardLocationsPath\(\),\s*\{\s*force:\s*true\s*\}\)/);
+    expect(installSrc).toMatch(/const dbPath = getDashboardDbPath\(\)/);
+    expect(installSrc).toMatch(/await rm\(dbPath,\s*\{\s*force:\s*true\s*\}\)/);
+    expect(installSrc).toMatch(/await rm\(`\$\{dbPath\}-wal`,\s*\{\s*force:\s*true\s*\}\)/);
+    expect(installSrc).toMatch(/await rm\(`\$\{dbPath\}-shm`,\s*\{\s*force:\s*true\s*\}\)/);
+
+    const agent = await makeTemp("omp-share-uninstall-state-");
+    process.env.PI_CODING_AGENT_DIR = agent;
+    const cfg = getShareConfigPath();
+    const locations = getDashboardLocationsPath();
+    const db = getDashboardDbPath();
+    expect(cfg).toBe(path.join(agent, "omp-sessions-share.json"));
+    expect(locations).toBe(path.join(agent, "omp-sessions-share-locations.json"));
+    expect(db).toBe(path.join(agent, "omp-sessions-share.sqlite"));
+    expect(`${db}-wal`).toBe(path.join(agent, "omp-sessions-share.sqlite-wal"));
+    expect(`${db}-shm`).toBe(path.join(agent, "omp-sessions-share.sqlite-shm"));
   });
 });
