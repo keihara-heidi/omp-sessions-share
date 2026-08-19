@@ -600,7 +600,7 @@ function stripManagedZshBlocks(source: string): string {
   return kept.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-async function installLauncherAndAlias(): Promise<void> {
+async function installLaunchers(runtimeRoot: string): Promise<void> {
   const home = requireHome();
   const sourceCli = await resolveBundledOmpCli();
   if (!(await pathExists(sourceCli))) {
@@ -613,8 +613,8 @@ async function installLauncherAndAlias(): Promise<void> {
   await mkdir(userBinDir, { recursive: true });
 
   const ossPath = path.join(userBinDir, "oss");
-  const sharePath = path.join(userBinDir, "omp-share");
   const ompPath = path.join(userBinDir, "omp");
+  const dashboardOmpPath = path.join(runtimeRoot, "omp");
 
   const installedSetupCli = path.join(
     path.dirname(getInstalledPluginPackagePath()),
@@ -628,8 +628,8 @@ async function installLauncherAndAlias(): Promise<void> {
       : path.join(PACKAGE_ROOT, "setup", "cli.ts"),
   );
 
-  // omp-share is always ours; rewrite freely.
-  await writeOwnedLauncher(sharePath, sourceCli);
+  await writeOwnedLauncher(dashboardOmpPath, sourceCli);
+  await removeOwnedLauncher(path.join(userBinDir, "omp-share"));
 
   // Preserve an independently installed OMP; only create or refresh our own.
   if (!(await pathExists(ompPath)) || (await isOwnedLauncher(ompPath))) {
@@ -715,10 +715,10 @@ export async function setupLocalRuntime(
   const runtimeRoot = await copyRuntimeAssets(staticDir);
   const config = await buildConfig(publicOrigin);
   await writeShareConfig(config);
+  await installLaunchers(runtimeRoot);
   const startServer = options.startServer !== false;
   await installLaunchAgent(runtimeRoot, startServer);
   if (startServer) await configureTailscaleServe(tailscaleBin);
-  await installLauncherAndAlias();
   return config;
 }
 

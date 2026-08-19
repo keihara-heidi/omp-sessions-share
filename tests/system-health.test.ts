@@ -216,28 +216,28 @@ describe("system health collection", () => {
 
   test("bounds an unresponsive managed launcher and returns no command output", async () => {
     const bin = makeTemp("omp-health-bin-");
-    const launcher = join(bin, "omp-share");
+    const launcher = join(bin, "omp");
     writeFileSync(
       launcher,
       "#!/bin/sh\n# omp-sessions-share-owned-launcher\nprintf 'private stdout /private/path'\nexec sleep 10\n",
     );
     chmodSync(launcher, 0o700);
     const probes = allProbeOverrides();
-    delete probes["omp-share"];
+    delete probes["dashboard-omp"];
 
     const startedAt = Date.now();
     const result = await createSystemHealthService({
       isSleepInhibitorActive: () => false,
       isSleepInhibitorRequired: () => false,
-      localBinDir: bin,
+      dashboardOmpPath: launcher,
       probes,
     }).getHealth();
     expect(Date.now() - startedAt).toBeLessThan(5_000);
     expect(
-      result.checks.find((check) => check.id === "omp-share"),
+      result.checks.find((check) => check.id === "dashboard-omp"),
     ).toMatchObject({
       level: "warning",
-      summary: "OMP Share launcher did not report a version",
+      summary: "Dashboard OMP launcher did not report a version",
     });
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain("private stdout");

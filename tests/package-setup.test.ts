@@ -475,8 +475,13 @@ describe("packaged path resolution fixtures", () => {
     expect(installSrc).toMatch(/@oh-my-pi\/pi-coding-agent/);
     expect(installSrc).toMatch(/src", "cli\.ts"/);
     expect(installSrc).toMatch(/\.local", "bin"/);
-    expect(installSrc).toMatch(/omp-share/);
+    expect(installSrc).toMatch(
+      /dashboardOmpPath\s*=\s*path\.join\(runtimeRoot,\s*"omp"\)/,
+    );
     expect(installSrc).toMatch(/path\.join\(userBinDir,\s*"oss"\)/);
+    expect(installSrc).toMatch(
+      /removeOwnedLauncher\(path\.join\(userBinDir,\s*"omp-share"\)\)/,
+    );
     expect(installSrc).toMatch(/getInstalledPluginPackagePath\(\)/);
     expect(installSrc).toMatch(
       /removeOwnedLauncher\(path\.join\(home,\s*"\.local",\s*"bin",\s*"oss"\)\)/,

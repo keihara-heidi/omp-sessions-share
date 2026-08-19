@@ -251,9 +251,7 @@ function printSetupResult(config: ShareConfig): void {
   console.log(`Local origin:        ${config.localOrigin}`);
   console.log(`Config:              ~/.omp/agent/omp-sessions-share.json`);
   console.log(`Dashboard password:  ${config.dashboardPassword}`);
-  console.log(
-    "Installed launchers: ~/.local/bin/oss and ~/.local/bin/omp-share",
-  );
+  console.log("Installed launcher:  ~/.local/bin/oss");
   console.log(
     "OMP launcher:        ~/.local/bin/omp (existing installations are preserved)",
   );

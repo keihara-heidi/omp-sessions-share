@@ -83,7 +83,7 @@ export type HealthCheckId =
   | "tailscale-serve"
   | "dashboard-ingress"
   | "omp"
-  | "omp-share"
+  | "dashboard-omp"
   | "github-cli"
   | "sleep-inhibitor";
 
@@ -135,7 +135,7 @@ export const HEALTH_CHECK_IDS = [
   "tailscale-serve",
   "dashboard-ingress",
   "omp",
-  "omp-share",
+  "dashboard-omp",
   "github-cli",
   "sleep-inhibitor",
 ] as const satisfies readonly HealthCheckId[];
@@ -154,7 +154,7 @@ const HEALTH_CHECK_ID_SET: Record<string, true> = {
   "tailscale-serve": true,
   "dashboard-ingress": true,
   omp: true,
-  "omp-share": true,
+  "dashboard-omp": true,
   "github-cli": true,
   "sleep-inhibitor": true,
 };

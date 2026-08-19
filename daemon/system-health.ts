@@ -33,7 +33,7 @@ const LABELS: Record<HealthCheckId, string> = {
   "tailscale-serve": "Tailscale Serve",
   "dashboard-ingress": "Dashboard ingress",
   omp: "OMP launcher",
-  "omp-share": "OMP Share launcher",
+  "dashboard-omp": "Dashboard OMP launcher",
   "github-cli": "GitHub CLI",
   "sleep-inhibitor": "Sleep inhibitor",
 };
@@ -48,6 +48,7 @@ export type SystemHealthServiceOptions = {
   runtimePackagePath?: string;
   installedPackagePath?: string;
   localBinDir?: string;
+  dashboardOmpPath?: string;
 };
 
 export type SystemHealthService = {
@@ -542,58 +543,57 @@ async function probeOmpLauncher(
   );
 }
 
-async function probeOmpShareLauncher(
+async function probeDashboardOmpLauncher(
   checkedAt: string,
-  localBinDir: string,
+  launcherPath: string,
 ): Promise<HealthCheck> {
-  const sharePath = join(localBinDir, "omp-share");
   try {
-    const st = statSync(sharePath);
+    const st = statSync(launcherPath);
     if (!st.isFile()) {
       return checkOf(
-        "omp-share",
+        "dashboard-omp",
         "warning",
-        "Managed OMP Share launcher is missing",
+        "Dashboard OMP launcher is missing",
         checkedAt,
         "Re-run plugin setup",
       );
     }
   } catch {
     return checkOf(
-      "omp-share",
+      "dashboard-omp",
       "warning",
-      "Managed OMP Share launcher is missing",
+      "Dashboard OMP launcher is missing",
       checkedAt,
       "Re-run plugin setup",
     );
   }
-  if (!readOwnedMarker(sharePath)) {
+  if (!readOwnedMarker(launcherPath)) {
     return checkOf(
-      "omp-share",
+      "dashboard-omp",
       "warning",
-      "OMP Share launcher is present but not managed by this plugin",
+      "Dashboard OMP launcher is not managed by this plugin",
       checkedAt,
       "Re-run plugin setup",
     );
   }
-  if (!pathExecutable(sharePath)) {
+  if (!pathExecutable(launcherPath)) {
     return checkOf(
-      "omp-share",
+      "dashboard-omp",
       "warning",
-      "Managed OMP Share launcher is not executable",
+      "Dashboard OMP launcher is not executable",
       checkedAt,
       "Re-run plugin setup",
     );
   }
-  const result = await runBounded([sharePath, "--version"], {
+  const result = await runBounded([launcherPath, "--version"], {
     timeoutMs: CMD_TIMEOUT_MS,
     maxOutputBytes: 4_096,
   });
   if (!result || result.code !== 0) {
     return checkOf(
-      "omp-share",
+      "dashboard-omp",
       "warning",
-      "OMP Share launcher did not report a version",
+      "Dashboard OMP launcher did not report a version",
       checkedAt,
       "Re-run plugin setup",
     );
@@ -601,17 +601,17 @@ async function probeOmpShareLauncher(
   const version = parseOmpVersion(result.stdout);
   if (!version) {
     return checkOf(
-      "omp-share",
+      "dashboard-omp",
       "warning",
-      "OMP Share launcher reported an invalid version",
+      "Dashboard OMP launcher reported an invalid version",
       checkedAt,
       "Re-run plugin setup",
     );
   }
   return checkOf(
-    "omp-share",
+    "dashboard-omp",
     "healthy",
-    `Managed OMP Share launcher uses OMP ${version}`,
+    `Dashboard OMP launcher uses OMP ${version}`,
     checkedAt,
   );
 }
@@ -697,6 +697,8 @@ export function createSystemHealthService(
   const localBinDir =
     options.localBinDir ??
     join(process.env.HOME?.trim() || homedir(), ".local", "bin");
+  const dashboardOmpPath =
+    options.dashboardOmpPath ?? join(import.meta.dir, "..", "omp");
   const probeDatabaseFn = options.probeDatabase ?? probeDashboardDbHealth;
   const nowFn = options.now ?? Date.now;
 
@@ -762,8 +764,8 @@ export function createSystemHealthService(
         ),
       ),
       runProbe("omp", () => probeOmpLauncher(checkedAt, localBinDir)),
-      runProbe("omp-share", () =>
-        probeOmpShareLauncher(checkedAt, localBinDir),
+      runProbe("dashboard-omp", () =>
+        probeDashboardOmpLauncher(checkedAt, dashboardOmpPath),
       ),
       runProbe("github-cli", () => probeGithubCli(checkedAt)),
       runProbe("sleep-inhibitor", () =>

@@ -30,7 +30,7 @@ Setup creates:
 - one Tailscale Serve endpoint on HTTPS port `8443`
 - one private config at `~/.omp/agent/omp-sessions-share.json` with mode `0600`
 - one private dashboard SQLite database at `~/.omp/agent/omp-sessions-share.sqlite` with mode `0600` and WAL (`-wal` / `-shm` sidecars also `0600`)
-- PATH-first launchers at `~/.local/bin/oss` and `~/.local/bin/omp-share`; setup creates `~/.local/bin/omp` only when that path is absent or already managed by this plugin
+- one PATH-first launcher at `~/.local/bin/oss`; setup creates `~/.local/bin/omp` only when that path is absent or already managed by this plugin
 
 If `~/.omp/agent/omp-sessions-share-locations.json` already exists, it is imported once into SQLite and left on disk unchanged so you can roll back.
 
@@ -117,7 +117,7 @@ Setup is idempotent, retains existing secrets, and also repairs a missing `oss` 
 oss update
 ```
 
-Update resolves the exact latest commit on `main`, reinstalls the plugin through OMP's package manager library without launching OMP, and reruns idempotent setup so the copied daemon runtime and launchers match it. Existing configuration, secrets, registered workspaces, Recent sessions, and the SQLite database are preserved.
+Update resolves the exact latest commit on `main`, reinstalls the plugin through OMP's package manager library without launching OMP, and reruns idempotent setup so the copied daemon runtime and launcher match it. Existing configuration, secrets, registered workspaces, Recent sessions, and the SQLite database are preserved.
 
 ## Uninstall
 

@@ -44,7 +44,7 @@ const SECTIONS: Array<{ id: string; title: string; checks: HealthCheckId[] }> =
     {
       id: "system-tools-heading",
       title: "Tools",
-      checks: ["omp", "omp-share", "github-cli"],
+      checks: ["omp", "dashboard-omp", "github-cli"],
     },
     {
       id: "system-power-heading",

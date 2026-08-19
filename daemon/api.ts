@@ -494,12 +494,12 @@ async function launchOmpInTerminal(
   if (!(await stat(worktreePath)).isDirectory()) {
     throw new Error("worktree is not a directory");
   }
-  const ompPath = join(homedir(), ".local", "bin", "omp-share");
+  const ompPath = join(import.meta.dir, "..", "omp");
   const { prompt } = normalizeLaunchInit(init);
   const promptDir =
     prompt === undefined
       ? undefined
-      : await mkdtemp(join(tmpdir(), "omp-share-prompt-"));
+      : await mkdtemp(join(tmpdir(), "omp-session-prompt-"));
   const promptFilePath = promptDir && join(promptDir, "prompt.md");
   try {
     if (promptFilePath && prompt !== undefined) {
