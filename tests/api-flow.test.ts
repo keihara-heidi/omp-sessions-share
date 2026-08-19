@@ -803,6 +803,57 @@ describe("local daemon auth gates", () => {
     }
   });
 
+  test("deleting a worktree terminates its shared session process", async () => {
+    const repo = initGitRepo();
+    const linked = await createGitWorktree([repo]);
+    const omp = Bun.spawn(
+      [
+        "bun",
+        "-e",
+        "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)",
+      ],
+      { cwd: linked.path, stdout: "ignore", stderr: "ignore" },
+    );
+    try {
+      const first = upsertSession({
+        id: "delete_live_a",
+        title: "Delete live A",
+        cwd: linked.path,
+        startedAt: "2026-08-19T00:00:00.000Z",
+        pid: omp.pid,
+      });
+      upsertSession({
+        id: "delete_live_b",
+        title: "Delete live B",
+        cwd: linked.path,
+        startedAt: "2026-08-19T00:00:01.000Z",
+        pid: omp.pid,
+      });
+      const cookie = await loginCookie();
+      const res = await handleApi(
+        new Request("http://local/api/sessions/worktrees", {
+          method: "DELETE",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify({
+            groupPath: first.group.path,
+            worktreePath: first.worktree.path,
+          }),
+        }),
+        config,
+        "/api/sessions/worktrees",
+      );
+
+      expect(res?.status).toBe(200);
+      expect(await omp.exited).not.toBe(0);
+      expect(listSessions()).toEqual([]);
+    } finally {
+      omp.kill();
+      await omp.exited;
+      rmSync(linked.path, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   test("refuses deletion when the worktree has uncommitted changes", async () => {
     const repo = initGitRepo();
     const linked = await createGitWorktree([repo]);
