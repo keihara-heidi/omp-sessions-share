@@ -695,6 +695,11 @@ export function isSessionInactive(id: string): boolean {
   return isValidId(id) && inactiveSessionIds.has(id);
 }
 
+/** Allow a deliberately resumed session id to become live again. */
+export function reactivateSession(id: string): void {
+  if (isValidId(id)) inactiveSessionIds.delete(id);
+}
+
 export type CreateRequestArgs = CreateJoinRequestInput & { sessionId: string };
 
 export function createRequest(input: CreateRequestArgs): JoinRequest {

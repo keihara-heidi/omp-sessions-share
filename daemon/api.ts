@@ -28,6 +28,7 @@ import {
   listDashboardLocations,
   listRequestsBySession,
   listSessions,
+  reactivateSession,
   registerDashboardLocation,
   registerDashboardLocations,
   registerDashboardPaths,
@@ -550,6 +551,7 @@ async function handleResumeRecentSession(
       resumeSessionFile: sessionFile,
       ...(row.origin === "adhoc" ? { origin: "adhoc" as const } : {}),
     });
+    reactivateSession(row.sessionId);
     return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return err("Could not resume session", 500);
