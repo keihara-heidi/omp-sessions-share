@@ -538,13 +538,12 @@ describe("local daemon auth gates", () => {
 
       const cookie = await loginCookie();
       const createdFor: string[][] = [];
-      const launchedPaths: string[] = [];
       const created = await handleApi(
         jsonRequest("http://local/api/sessions/worktrees", body, { cookie }),
         config,
         "/api/sessions/worktrees",
-        async (worktreePath) => {
-          launchedPaths.push(worktreePath);
+        async () => {
+          throw new Error("must not launch");
         },
         async (advertisedPaths) => {
           createdFor.push(advertisedPaths);
@@ -556,7 +555,6 @@ describe("local daemon auth gates", () => {
         data: { ok: true, path: "/tmp/new-worktree" },
       });
       expect(createdFor).toEqual([[session.group.path]]);
-      expect(launchedPaths).toEqual(["/tmp/new-worktree"]);
 
       const unknown = await handleApi(
         jsonRequest(
