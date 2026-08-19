@@ -329,6 +329,24 @@ describe("local daemon auth gates", () => {
     );
     expect(invalid?.status).toBe(400);
     expect(started).toEqual([]);
+    const omp = Bun.spawn(
+      [
+        "bun",
+        "-e",
+        "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)",
+      ],
+      {
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    );
+    upsertSession({
+      id: "updating_session",
+      title: "Running during update",
+      cwd: "/tmp/updating",
+      startedAt: "2026-08-19T00:00:00.000Z",
+      pid: omp.pid,
+    });
 
     const accepted = await handleApi(
       jsonRequest("http://local/api/system/update", { commit }, { cookie }),
@@ -341,6 +359,8 @@ describe("local daemon auth gates", () => {
     expect(accepted?.status).toBe(202);
     expect(accepted?.headers.get("cache-control")).toBe("no-store");
     expect(started).toEqual([commit]);
+    expect(await omp.exited).not.toBe(0);
+    expect(listSessions()).toEqual([]);
   });
 
   test("host system health requires Bearer and preserves dashboard cookie gate", async () => {

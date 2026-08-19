@@ -1133,6 +1133,11 @@ async function handlePluginUpdate(
   }
   try {
     deps.startPluginUpdate(commit);
+    for (const session of listSessions()) {
+      const pid = exclusiveSessionPid(session.id);
+      deactivateSession(session.id);
+      if (pid !== undefined) killSessionProcess(pid);
+    }
     return jsonOk(
       { ok: true },
       { status: 202, headers: { "Cache-Control": "no-store" } },
