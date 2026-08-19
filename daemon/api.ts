@@ -618,7 +618,6 @@ async function handleLaunchHomeSession(
 async function handleCreateWorktree(
   req: Request,
   config: ShareConfig,
-  launchOmp: LaunchOmp,
   createWorktree: CreateWorktree,
 ): Promise<Response> {
   const auth = await requireDashboardAuth(req, config);
@@ -651,7 +650,6 @@ async function handleCreateWorktree(
   try {
     const created = await createWorktree(advertisedPaths);
     registerDashboardLocation(created.path);
-    await launchOmp(created.path);
     return jsonOk(
       { ok: true, path: created.path },
       { headers: { "Cache-Control": "no-store" } },
@@ -1185,7 +1183,7 @@ export async function handleApi(
     return handleLaunchHomeSession(req, config, launchOmp);
   }
   if (pathname === "/api/sessions/worktrees" && method === "POST") {
-    return handleCreateWorktree(req, config, launchOmp, createWorktree);
+    return handleCreateWorktree(req, config, createWorktree);
   }
   if (pathname === "/api/sessions/worktrees" && method === "DELETE") {
     return handleDeleteWorktree(req, config, deps);
