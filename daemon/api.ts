@@ -450,46 +450,6 @@ function normalizeLaunchInit(init?: LaunchOmpInit): {
   };
 }
 
-export function buildOmpGhosttyArgs(
-  worktreePath: string,
-  ompPath: string,
-  init?: LaunchOmpInit,
-  promptFilePath?: string,
-): string[] {
-  const { prompt, resumeSessionFile, origin } = normalizeLaunchInit(init);
-  if (prompt !== undefined && promptFilePath === undefined) {
-    throw new Error("promptFilePath is required for a prompt launch");
-  }
-  const executable =
-    origin === "adhoc"
-      ? '/usr/bin/env OMP_SESSION_ORIGIN=adhoc "$2"'
-      : '"$2"';
-  const script =
-    resumeSessionFile !== undefined
-      ? `cd "$1" && exec ${executable} --resume "$3"`
-      : prompt === undefined
-        ? `cd "$1" && exec ${executable}`
-        : `cd "$1" && trap '/bin/rm -rf "$4"' EXIT HUP INT TERM; ${executable} @"$3"; exit`;
-  const argv = [
-    "/usr/bin/open",
-    "-na",
-    "Ghostty.app",
-    "--args",
-    "-e",
-    "/bin/zsh",
-    "-lc",
-    script,
-    "omp-session",
-    worktreePath,
-    ompPath,
-  ];
-  if (resumeSessionFile !== undefined) {
-    argv.push(resumeSessionFile);
-  } else if (promptFilePath !== undefined) {
-    argv.push(promptFilePath, dirname(promptFilePath));
-  }
-  return argv;
-}
 
 export function buildOmpTerminalArgs(
   worktreePath: string,
@@ -548,24 +508,11 @@ async function launchOmpInTerminal(
     if (promptFilePath && prompt !== undefined) {
       await writeFile(promptFilePath, prompt, { mode: 0o600 });
     }
-    const launchArgs: string[][] = [];
-    try {
-      if ((await stat("/Applications/Ghostty.app")).isDirectory()) {
-        launchArgs.push(
-          buildOmpGhosttyArgs(worktreePath, ompPath, init, promptFilePath),
-        );
-      }
-    } catch {
-      // Ghostty is optional.
-    }
-    launchArgs.push(
+    const proc = Bun.spawn(
       buildOmpTerminalArgs(worktreePath, ompPath, init, promptFilePath),
+      { stdout: "ignore", stderr: "ignore" },
     );
-    for (const args of launchArgs) {
-      const proc = Bun.spawn(args, { stdout: "ignore", stderr: "ignore" });
-      if ((await proc.exited) === 0) return;
-    }
-    throw new Error("Terminal launch failed");
+    if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
   } catch (error) {
     if (promptDir) await rm(promptDir, { recursive: true, force: true });
     throw error;

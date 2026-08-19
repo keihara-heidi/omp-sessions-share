@@ -11,7 +11,6 @@ import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
 import {
   buildOmpTerminalArgs,
-  buildOmpGhosttyArgs,
   handleApi,
   SERVER_IDLE_TIMEOUT_SECONDS,
   SSE_KEEPALIVE_MS,
@@ -160,24 +159,6 @@ describe("buildOmpTerminalArgs", () => {
     expect(args.at(-1)).toBe("/tmp/omp");
   });
 
-  test("launches Ghostty directly without AppleScript", () => {
-    const args = buildOmpGhosttyArgs("/tmp/worktree", "/tmp/omp", {
-      origin: "adhoc",
-    });
-
-    expect(args.slice(0, 7)).toEqual([
-      "/usr/bin/open",
-      "-na",
-      "Ghostty.app",
-      "--args",
-      "-e",
-      "/bin/zsh",
-      "-lc",
-    ]);
-    expect(args[7]).toContain('cd "$1"');
-    expect(args[7]).toContain("OMP_SESSION_ORIGIN=adhoc");
-    expect(args.slice(-2)).toEqual(["/tmp/worktree", "/tmp/omp"]);
-  });
 
   test("carries the ad-hoc origin as a fixed environment marker", () => {
     const args = buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp", {
