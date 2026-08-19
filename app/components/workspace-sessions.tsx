@@ -82,11 +82,13 @@ function LiveSessionRow({
 function RecentSessionRow({
   session,
   openingId,
+  onSelect,
 }: {
   session: RecentSessionSummary;
   openingId: string | null;
+  onSelect: (sessionId: string) => void;
 }) {
-  const { mutate: resumeSession, isPending: isResuming } =
+  const { mutateAsync: resumeSession, isPending: isResuming } =
     useResumeRecentSession();
 
   return (
@@ -94,7 +96,14 @@ function RecentSessionRow({
       <button
         type="button"
         className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
-        onClick={() => resumeSession(session.id)}
+        onClick={async () => {
+          try {
+            await resumeSession(session.id);
+            onSelect(session.id);
+          } catch {
+            // The mutation already reports resume failures.
+          }
+        }}
         disabled={openingId !== null || isResuming}
         aria-busy={isResuming}
         aria-label={`Resume ${session.title}`}
@@ -152,6 +161,7 @@ export function WorkspaceSessions({
                 key={session.id}
                 session={session}
                 openingId={openingId}
+                onSelect={onSelect}
               />
             ))}
           </ul>

@@ -1643,6 +1643,38 @@ describe("recent session resume", () => {
     };
   }
 
+  test("opaque recent id joins the resumed live session", async () => {
+    const seeded = seedRecent();
+    const cookie = await loginCookie();
+    const keyPair = await rsaPair();
+    const publicKeyJwk = await crypto.subtle.exportKey(
+      "jwk",
+      keyPair.publicKey,
+    );
+    const path = `/api/sessions/${seeded.resumeId}/requests`;
+    const requestBody = { deviceName: "Test phone", publicKeyJwk };
+
+    const starting = await api(
+      jsonRequest(`http://local${path}`, requestBody, { cookie }),
+    );
+    expect(starting.status).toBe(425);
+
+    upsertSession({
+      id: seeded.sessionId,
+      title: "Remembered",
+      cwd: seeded.cwd,
+      startedAt: "2026-08-12T00:00:00.000Z",
+      sessionFile: seeded.sessionFile,
+    });
+    const joined = await api(
+      jsonRequest(`http://local${path}`, requestBody, { cookie }),
+    );
+    expect(joined.status).toBe(201);
+    expect(await joined.json()).toMatchObject({
+      data: { sessionId: seeded.sessionId, status: "pending" },
+    });
+  });
+
   test("dashboard can forget a recent session by opaque id", async () => {
     const seeded = seedRecent();
     const path = `/api/recent-sessions/${seeded.resumeId}`;
