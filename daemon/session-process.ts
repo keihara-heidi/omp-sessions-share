@@ -1,4 +1,4 @@
-/** SIGTERM only the session's omp pid, then close its matching Terminal.app window. */
+/** SIGTERM only the session's omp pid, then close its matching idle Terminal.app window. */
 
 const BLOCKED =
   /cursor|visual studio code|code helper|electron|iterm2?|terminal\.app|windowserver|launchd/i;
@@ -38,7 +38,13 @@ export function buildCloseTerminalArgs(tty: string): string[] {
 tell application "Terminal"
 repeat with w in windows
 if (count of tabs of w) is 1 and tty of selected tab of w is item 1 of argv then
+repeat 50 times
+if busy of selected tab of w is false then
 close w
+return
+end if
+delay 0.05
+end repeat
 return
 end if
 end repeat
@@ -55,7 +61,7 @@ function closeTerminalWindow(tty: string): void {
   });
 }
 
-/** SIGTERM `pid`, then close its single-tab Terminal.app window for the same TTY. */
+/** SIGTERM `pid`, then wait for its Terminal tab to become idle before closing. */
 export function killSessionProcess(pid: number, daemonPid = process.pid): boolean {
   if (!Number.isInteger(pid) || pid <= 1 || pid === daemonPid) return false;
   if (!isKillableSessionCommand(readProcessCommand(pid))) return false;

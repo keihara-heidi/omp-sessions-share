@@ -32,6 +32,10 @@ describe("buildCloseTerminalArgs", () => {
     expect(args[0]).toBe("/usr/bin/osascript");
     expect(script).toContain("(count of tabs of w) is 1");
     expect(script).toContain("tty of selected tab of w is item 1 of argv");
+    expect(script).toContain("busy of selected tab of w");
+    expect(script.indexOf("busy of selected tab of w")).toBeLessThan(
+      script.indexOf("close w"),
+    );
     expect(script).toContain("close w");
     expect(script).not.toContain(tty);
     expect(args.at(-1)).toBe(tty);
