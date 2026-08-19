@@ -1754,6 +1754,44 @@ describe("recent session resume", () => {
         init: { resumeSessionFile: seeded.sessionFile },
       },
     ]);
+
+    const heartbeat = await api(
+      jsonRequest(
+        "http://local/api/host/sessions",
+        {
+          id: seeded.sessionId,
+          title: "Remembered",
+          cwd: seeded.cwd,
+          startedAt: "2026-08-12T00:00:00.000Z",
+          sessionFile: seeded.sessionFile,
+        },
+        hostHeaders,
+      ),
+    );
+    expect(await heartbeat.json()).toMatchObject({
+      data: { id: seeded.sessionId },
+    });
+    expect(getSessionDashboard().sessions.map((session) => session.id)).toEqual([
+      seeded.sessionId,
+    ]);
+    expect(getSessionDashboard().recentSessions).toEqual([]);
+
+    const keyPair = await rsaPair();
+    const publicKeyJwk = await crypto.subtle.exportKey(
+      "jwk",
+      keyPair.publicKey,
+    );
+    const request = await api(
+      jsonRequest(
+        `http://local/api/sessions/${seeded.resumeId}/requests`,
+        { deviceName: "Test phone", publicKeyJwk },
+        { cookie },
+      ),
+    );
+    expect(request.status).toBe(201);
+    expect(await request.json()).toMatchObject({
+      data: { sessionId: seeded.sessionId, status: "pending" },
+    });
   });
 
   test("ad-hoc resume preserves origin without a Workspace location", async () => {
