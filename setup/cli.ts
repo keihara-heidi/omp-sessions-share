@@ -37,7 +37,7 @@ export const EXIT_UNHEALTHY = 3;
 
 export type CliCommand =
   | { name: "help" }
-  | { name: "setup" }
+  | { name: "setup"; startServer?: false }
   | { name: "start" }
   | { name: "stop" }
   | { name: "restart" }
@@ -135,6 +135,15 @@ export function parseCliArgs(argv: readonly string[]): ParseResult {
     case "help":
       return { ok: true, command: { name: "help" } };
     case "setup":
+      if (args.length === 1) return { ok: true, command: { name: "setup" } };
+      if (args.length === 2 && args[1] === "--no-start") {
+        return { ok: true, command: { name: "setup", startServer: false } };
+      }
+      return {
+        ok: false,
+        error: "Unexpected arguments for setup. Use: oss setup",
+        exitCode: EXIT_USAGE,
+      };
     case "start":
     case "stop":
     case "restart":
@@ -264,9 +273,9 @@ async function requireConfig(): Promise<ShareConfig> {
   return config;
 }
 
-async function cmdSetup(): Promise<void> {
+async function cmdSetup(startServer = true): Promise<void> {
   try {
-    const config = await setupLocalRuntime();
+    const config = await setupLocalRuntime({ startServer });
     printSetupResult(config);
   } catch (err) {
     fail(`setup failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -506,6 +515,43 @@ async function resolveInstalledSetupEntry(): Promise<string> {
   return entry;
 }
 
+export type UpdateLifecycle = {
+  isRunning: () => boolean;
+  stop: () => Promise<void>;
+  install: (commit: string) => Promise<void>;
+  setup: () => Promise<void>;
+  start: () => Promise<void>;
+};
+
+export async function runUpdateLifecycle(
+  commit: string,
+  lifecycle: UpdateLifecycle,
+): Promise<void> {
+  const wasRunning = lifecycle.isRunning();
+  let restoreRunning = false;
+  try {
+    if (wasRunning) {
+      restoreRunning = true;
+      await lifecycle.stop();
+    }
+    await lifecycle.install(commit);
+    await lifecycle.setup();
+    if (wasRunning) {
+      await lifecycle.start();
+      restoreRunning = false;
+    }
+  } catch (error) {
+    if (restoreRunning) {
+      try {
+        await lifecycle.start();
+      } catch {
+        // Preserve the update failure; start diagnostics are emitted by launchctl.
+      }
+    }
+    throw error;
+  }
+}
+
 async function cmdUpdate(requestedCommit?: string): Promise<void> {
   let commit = requestedCommit;
   if (!commit) {
@@ -517,24 +563,31 @@ async function cmdUpdate(requestedCommit?: string): Promise<void> {
   }
 
   try {
-    const manager = new PluginManager();
-    await manager.install(`${PLUGIN_GITHUB_SOURCE}#${commit}`, { force: true });
+    await runUpdateLifecycle(commit, {
+      isRunning: () => isLocalShareServerRunning(),
+      stop: () => stopLocalShareServer(),
+      install: async (pinnedCommit) => {
+        const manager = new PluginManager();
+        await manager.install(`${PLUGIN_GITHUB_SOURCE}#${pinnedCommit}`, {
+          force: true,
+        });
+      },
+      setup: async () => {
+        const setupEntry = await resolveInstalledSetupEntry();
+        const setup = Bun.spawnSync(
+          [process.execPath, setupEntry, "setup", "--no-start"],
+          { stdout: "inherit", stderr: "inherit", stdin: "inherit" },
+        );
+        if (setup.exitCode !== 0) {
+          throw new Error(
+            `installed setup exited ${setup.exitCode ?? "unknown"}`,
+          );
+        }
+      },
+      start: () => startLocalShareServer(),
+    });
   } catch (err) {
-    fail(
-      `update failed: plugin install failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  const setupEntry = await resolveInstalledSetupEntry();
-  const setup = Bun.spawnSync([process.execPath, setupEntry, "setup"], {
-    stdout: "inherit",
-    stderr: "inherit",
-    stdin: "inherit",
-  });
-  if (setup.exitCode !== 0) {
-    fail(
-      `update failed: installed setup exited ${setup.exitCode ?? "unknown"}`,
-    );
+    fail(`update failed: ${err instanceof Error ? err.message : String(err)}`);
   }
   console.log(
     `omp-sessions-share updated to ${commit}. Local config and database preserved.`,
@@ -564,7 +617,7 @@ export async function runCli(argv: readonly string[] = process.argv): Promise<vo
       console.log(USAGE);
       return;
     case "setup":
-      await cmdSetup();
+      await cmdSetup(parsed.command.startServer !== false);
       return;
     case "start":
       await cmdStart();

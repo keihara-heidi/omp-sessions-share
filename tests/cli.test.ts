@@ -8,6 +8,7 @@ import {
   getDaemonLogPath,
   isAccessLogLine,
   parseCliArgs,
+  runUpdateLifecycle,
   parseMainCommit,
 } from "../setup/cli";
 import { formatAccessLogLine } from "../daemon/server";
@@ -42,6 +43,10 @@ describe("cli parse/dispatch", () => {
     expect(parseCliArgs(argv("setup"))).toEqual({
       ok: true,
       command: { name: "setup" },
+    });
+    expect(parseCliArgs(argv("setup", "--no-start"))).toEqual({
+      ok: true,
+      command: { name: "setup", startServer: false },
     });
     expect(parseCliArgs(argv("start"))).toEqual({
       ok: true,
@@ -96,6 +101,60 @@ describe("cli parse/dispatch", () => {
       ok: true,
       command: { name: "logs", follow: true },
     });
+  });
+
+  test("update preserves dashboard lifecycle order", async () => {
+    const events: string[] = [];
+    await runUpdateLifecycle("a".repeat(40), {
+      isRunning: () => true,
+      stop: async () => void events.push("stop"),
+      install: async () => void events.push("update"),
+      setup: async () => void events.push("setup-stopped"),
+      start: async () => void events.push("start"),
+    });
+    expect(events).toEqual(["stop", "update", "setup-stopped", "start"]);
+
+    events.length = 0;
+    await runUpdateLifecycle("b".repeat(40), {
+      isRunning: () => false,
+      stop: async () => void events.push("stop"),
+      install: async () => void events.push("update"),
+      setup: async () => void events.push("setup-stopped"),
+      start: async () => void events.push("start"),
+    });
+    expect(events).toEqual(["update", "setup-stopped"]);
+  });
+
+  test("failed update restores a previously running dashboard", async () => {
+    const events: string[] = [];
+    await expect(
+      runUpdateLifecycle("c".repeat(40), {
+        isRunning: () => true,
+        stop: async () => void events.push("stop"),
+        install: async () => {
+          events.push("update");
+          throw new Error("install failed");
+        },
+        setup: async () => void events.push("setup-stopped"),
+        start: async () => void events.push("start"),
+      }),
+    ).rejects.toThrow("install failed");
+    expect(events).toEqual(["stop", "update", "start"]);
+
+    events.length = 0;
+    await expect(
+      runUpdateLifecycle("d".repeat(40), {
+        isRunning: () => true,
+        stop: async () => {
+          events.push("stop");
+          throw new Error("stop failed");
+        },
+        install: async () => void events.push("update"),
+        setup: async () => void events.push("setup-stopped"),
+        start: async () => void events.push("start"),
+      }),
+    ).rejects.toThrow("stop failed");
+    expect(events).toEqual(["stop", "start"]);
   });
 
   test("rejects unknown, extra args, run, and secret-like flags", () => {

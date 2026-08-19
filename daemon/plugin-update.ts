@@ -111,8 +111,8 @@ export function createPluginUpdateService(
           [process.execPath, setupEntry, "update", "--commit", commit],
           {
             stdin: "ignore",
-            stdout: "ignore",
-            stderr: "ignore",
+            stdout: "inherit",
+            stderr: "inherit",
             detached: true,
           },
         );
