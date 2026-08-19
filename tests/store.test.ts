@@ -23,6 +23,7 @@ import {
   getResumeSession,
   getSession,
   getSessionDashboard,
+  listFavoriteRepositoryPaths,
   listRecentSessions,
   listRequestsBySession,
   listSessions,
@@ -30,6 +31,7 @@ import {
   removeDashboardLocation,
   resetStoreForTests,
   setNowForTests,
+  setRepositoryFavorite,
   setResumeLastSeenFlushMsForTests,
   subscribeSessionChanges,
   upsertSession,
@@ -90,6 +92,7 @@ describe("daemon store TTL pruning", () => {
         },
       ],
       recentSessions: [],
+      favoriteRepositoryPaths: [],
     });
   });
 
@@ -149,6 +152,7 @@ describe("daemon store TTL pruning", () => {
           },
         ],
         recentSessions: [],
+        favoriteRepositoryPaths: [],
       });
 
       expect(
@@ -790,5 +794,74 @@ describe("subscribeSessionChanges", () => {
     expect(good).toBe(1);
     unsubBad();
     unsubGood();
+  });
+});
+
+describe("repository favorites", () => {
+  test("dashboard snapshot defaults empty favorites and persists across reopen", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-fav-store-"));
+    const cwd = join(root, "project");
+    const dbPath = join(root, "dash.sqlite");
+    mkdirSync(cwd);
+    try {
+      configureDashboardDb(dbPath);
+      expect(getSessionDashboard().favoriteRepositoryPaths).toEqual([]);
+      const session = upsertSession({
+        id: "fav-session",
+        title: "Fav",
+        cwd,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      // Force repository kind into memory location for favorite keying.
+      registerDashboardLocations([
+        {
+          group: {
+            kind: "repository",
+            name: session.group.name,
+            path: session.group.path,
+          },
+          worktree: session.worktree,
+          lastSessionStartedAt: session.startedAt,
+        },
+      ]);
+
+      setRepositoryFavorite(session.group.path, true);
+      setRepositoryFavorite(session.group.path, true);
+      expect(listFavoriteRepositoryPaths()).toEqual([session.group.path]);
+      expect(getSessionDashboard().favoriteRepositoryPaths).toEqual([
+        session.group.path,
+      ]);
+
+      resetStoreForTests();
+      configureDashboardDb(dbPath);
+      expect(getSessionDashboard().favoriteRepositoryPaths).toEqual([
+        session.group.path,
+      ]);
+
+      setRepositoryFavorite(session.group.path, false);
+      setRepositoryFavorite(session.group.path, false);
+      expect(getSessionDashboard().favoriteRepositoryPaths).toEqual([]);
+
+      resetStoreForTests();
+      configureDashboardDb(dbPath);
+      expect(getSessionDashboard().favoriteRepositoryPaths).toEqual([]);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("favorite change notifies session listeners", () => {
+    let calls = 0;
+    const unsub = subscribeSessionChanges(() => {
+      calls += 1;
+    });
+    setRepositoryFavorite("/tmp/repo", true);
+    expect(calls).toBe(1);
+    setRepositoryFavorite("/tmp/repo", true);
+    expect(calls).toBe(1);
+    setRepositoryFavorite("/tmp/repo", false);
+    expect(calls).toBe(2);
+    unsub();
   });
 });

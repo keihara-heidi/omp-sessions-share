@@ -468,6 +468,7 @@ describe("dashboard page projections", () => {
     sessions: [live],
     locations: [],
     recentSessions: [recent],
+    favoriteRepositoryPaths: [] as string[],
   };
 
   test("Sessions projects matching live and recent rows", () => {
@@ -492,6 +493,7 @@ describe("dashboard page projections", () => {
       sessions: [adhocLive],
       locations: [],
       recentSessions: [adhocRecent],
+      favoriteRepositoryPaths: [] as string[],
     };
 
     expect(projectSessions(adhocDashboard, "")).toEqual({
@@ -506,6 +508,7 @@ describe("dashboard page projections", () => {
       sessions: [{ ...live, origin: "adhoc" }],
       locations: [{ group, worktree, lastSessionStartedAt: live.startedAt }],
       recentSessions: [],
+      favoriteRepositoryPaths: [],
     }, "");
     expect(groups).toHaveLength(1);
     expect(groups[0]?.worktrees[0]?.sessions).toEqual([]);
@@ -521,5 +524,116 @@ describe("dashboard page projections", () => {
     expect(
       recentMatch[0]?.worktrees[0]?.recentSessions.map((item) => item.id),
     ).toEqual(["recent-projection"]);
+  });
+
+  test("favorite repositories partition first without reordering peers", () => {
+    const older = {
+      kind: "repository" as const,
+      name: "older-fav",
+      path: "/Users/dev/older-fav",
+    };
+    const newer = {
+      kind: "repository" as const,
+      name: "newer",
+      path: "/Users/dev/newer",
+    };
+    const newestFav = {
+      kind: "repository" as const,
+      name: "newest-fav",
+      path: "/Users/dev/newest-fav",
+    };
+    const folder = {
+      kind: "folder" as const,
+      name: "notes",
+      path: "/tmp/notes",
+    };
+    const olderWt = { name: "main", path: older.path };
+    const newerWt = { name: "main", path: newer.path };
+    const newestWt = { name: "main", path: newestFav.path };
+    const folderWt = { name: "notes", path: folder.path };
+
+    const groups = projectWorkspaces(
+      {
+        sessions: [],
+        locations: [
+          {
+            group: older,
+            worktree: olderWt,
+            lastSessionStartedAt: "2026-08-12T01:00:00.000Z",
+          },
+          {
+            group: newer,
+            worktree: newerWt,
+            lastSessionStartedAt: "2026-08-12T02:00:00.000Z",
+          },
+          {
+            group: newestFav,
+            worktree: newestWt,
+            lastSessionStartedAt: "2026-08-12T03:00:00.000Z",
+          },
+          {
+            group: folder,
+            worktree: folderWt,
+            lastSessionStartedAt: "2026-08-12T04:00:00.000Z",
+          },
+        ],
+        recentSessions: [],
+        favoriteRepositoryPaths: [older.path, newestFav.path, folder.path],
+      },
+      "",
+    );
+
+    expect(groups.map((item) => item.path)).toEqual([
+      newestFav.path,
+      older.path,
+      folder.path,
+      newer.path,
+    ]);
+    expect(groups.map((item) => item.favorite)).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+    expect(groups.find((item) => item.path === folder.path)?.kind).toBe(
+      "folder",
+    );
+  });
+
+  test("unfavorited repositories keep recency order", () => {
+    const first = {
+      kind: "repository" as const,
+      name: "first",
+      path: "/Users/dev/first",
+    };
+    const second = {
+      kind: "repository" as const,
+      name: "second",
+      path: "/Users/dev/second",
+    };
+    const groups = projectWorkspaces(
+      {
+        sessions: [],
+        locations: [
+          {
+            group: first,
+            worktree: { name: "main", path: first.path },
+            lastSessionStartedAt: "2026-08-12T01:00:00.000Z",
+          },
+          {
+            group: second,
+            worktree: { name: "main", path: second.path },
+            lastSessionStartedAt: "2026-08-12T02:00:00.000Z",
+          },
+        ],
+        recentSessions: [],
+        favoriteRepositoryPaths: [],
+      },
+      "",
+    );
+    expect(groups.map((item) => [item.path, item.favorite])).toEqual([
+      [second.path, false],
+      [first.path, false],
+    ]);
   });
 });

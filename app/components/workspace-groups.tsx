@@ -4,6 +4,7 @@ import { Folder, FolderGit2, Plus } from "lucide-react";
 import { useState } from "react";
 import type { SessionGroup, WorktreeGroup } from "@/app/components/group-sessions";
 import { DeleteWorktreeButton } from "@/app/components/worktree-delete-button";
+import { FavoriteRepositoryButton } from "@/app/components/favorite-repository-button";
 import { NewSessionButton } from "@/app/components/new-session-button";
 import { useCreateWorktree } from "@/app/components/use-sessions";
 import { PullRequestSection } from "@/app/components/pull-request-section";
@@ -28,7 +29,6 @@ import {
 } from "@/components/ds/session";
 import { Tabs } from "@/components/ui/tabs";
 import { tildify } from "@/lib/utils";
-
 
 function WorktreeSection({
   group,
@@ -80,10 +80,7 @@ function WorktreeSection({
 function CreateWorktreeButton({
   groupPath,
   groupName,
-}: {
-  groupPath: string;
-  groupName: string;
-}) {
+}: { groupPath: string; groupName: string }) {
   const { mutate: createWorktree, isPending: isCreating } = useCreateWorktree();
 
   return (
@@ -115,14 +112,8 @@ function WorkspaceGroup({
 }) {
   const [open, setOpen] = useState(false);
   const expanded = searching || open;
-  const live = group.worktrees.reduce(
-    (count, worktree) => count + worktree.sessions.length,
-    0,
-  );
-  const recent = group.worktrees.reduce(
-    (count, worktree) => count + worktree.recentSessions.length,
-    0,
-  );
+  const live = group.worktrees.reduce((count, worktree) => count + worktree.sessions.length, 0);
+  const recent = group.worktrees.reduce((count, worktree) => count + worktree.recentSessions.length, 0);
   const Icon = group.kind === "repository" ? FolderGit2 : Folder;
 
   return (
@@ -144,12 +135,21 @@ function WorkspaceGroup({
           <GroupPath>{tildify(group.path)}</GroupPath>
         </GroupSummaryText>
         {group.kind === "repository" ? (
-          <span className="self-center">
-            <CreateWorktreeButton
-              groupPath={group.path}
-              groupName={group.name}
-            />
-          </span>
+          <>
+            <span className="self-center">
+              <FavoriteRepositoryButton
+                groupPath={group.path}
+                groupName={group.name}
+                favorite={group.favorite}
+              />
+            </span>
+            <span className="self-center">
+              <CreateWorktreeButton
+                groupPath={group.path}
+                groupName={group.name}
+              />
+            </span>
+          </>
         ) : null}
       </GroupSummary>
       {expanded ? (
@@ -169,7 +169,6 @@ function WorkspaceGroup({
     </GroupDisclosure>
   );
 }
-
 
 export function WorkspaceGroups({
   groups,

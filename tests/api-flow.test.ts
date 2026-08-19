@@ -727,7 +727,12 @@ describe("local daemon auth gates", () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        data: { sessions: [], locations: [], recentSessions: [] },
+        data: {
+          sessions: [],
+          locations: [],
+          recentSessions: [],
+          favoriteRepositoryPaths: [],
+        },
       });
       expect(listSessions()).toEqual([]);
       expect(getSessionDashboard().locations).toEqual([]);
@@ -755,7 +760,12 @@ describe("local daemon auth gates", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      data: { sessions: [], locations: [], recentSessions: [] },
+      data: {
+        sessions: [],
+        locations: [],
+        recentSessions: [],
+        favoriteRepositoryPaths: [],
+      },
     });
   });
 
@@ -1233,12 +1243,14 @@ describe("GET /api/events SSE", () => {
         sessions: unknown[];
         locations: unknown[];
         recentSessions: unknown[];
+        favoriteRepositoryPaths: unknown[];
       };
     };
     expect(initialPayload.data).toEqual({
       sessions: [],
       locations: [],
       recentSessions: [],
+      favoriteRepositoryPaths: [],
     });
 
     // Meaningful host changes push the complete dashboard without a follow-up fetch.
@@ -2128,8 +2140,134 @@ describe("recent session resume", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      data: { sessions: [], locations: [], recentSessions: [] },
+      data: {
+        sessions: [],
+        locations: [],
+        recentSessions: [],
+        favoriteRepositoryPaths: [],
+      },
     });
     expect(listRecentSessions()).toEqual([]);
+  });
+});
+
+describe("repository favorites API", () => {
+  test("auth, body, folder, unknown, and successful toggle", async () => {
+    const repo = initGitRepo();
+    const folder = mkdtempSync(join(tmpdir(), "omp-api-fav-folder-"));
+    try {
+      const repoSession = upsertSession({
+        id: "fav_repo_source",
+        title: "Repo fav",
+        cwd: repo,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      const folderSession = upsertSession({
+        id: "fav_folder_source",
+        title: "Folder fav",
+        cwd: folder,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+      expect(repoSession.group.kind).toBe("repository");
+      expect(folderSession.group.kind).toBe("folder");
+
+      const unauthorized = await api(
+        jsonRequest("http://local/api/repositories/favorite", {
+          groupPath: repoSession.group.path,
+          favorite: true,
+        }),
+      );
+      expect(unauthorized.status).toBe(401);
+
+      const cookie = await loginCookie();
+
+      const invalid = await handleApi(
+        jsonRequest(
+          "http://local/api/repositories/favorite",
+          { groupPath: repoSession.group.path },
+          { cookie },
+        ),
+        config,
+        "/api/repositories/favorite",
+      );
+      expect(invalid?.status).toBe(400);
+      expect(await invalid?.json()).toEqual({ error: "Invalid body" });
+
+      const unknown = await handleApi(
+        jsonRequest(
+          "http://local/api/repositories/favorite",
+          { groupPath: "/tmp/not-advertised", favorite: true },
+          { cookie },
+        ),
+        config,
+        "/api/repositories/favorite",
+      );
+      expect(unknown?.status).toBe(404);
+      expect(await unknown?.json()).toEqual({ error: "Repository not found" });
+
+      const folderDenied = await handleApi(
+        jsonRequest(
+          "http://local/api/repositories/favorite",
+          { groupPath: folderSession.group.path, favorite: true },
+          { cookie },
+        ),
+        config,
+        "/api/repositories/favorite",
+      );
+      expect(folderDenied?.status).toBe(400);
+      expect(await folderDenied?.json()).toEqual({
+        error: "Not a git repository",
+      });
+
+      const favorited = await handleApi(
+        jsonRequest(
+          "http://local/api/repositories/favorite",
+          { groupPath: repoSession.group.path, favorite: true },
+          { cookie },
+        ),
+        config,
+        "/api/repositories/favorite",
+      );
+      expect(favorited?.status).toBe(200);
+      expect(await favorited?.json()).toEqual({ data: { ok: true } });
+
+      const dash = await api(
+        new Request("http://local/api/dashboard", { headers: { cookie } }),
+      );
+      expect(dash.status).toBe(200);
+      const body = (await dash.json()) as {
+        data: { favoriteRepositoryPaths: string[] };
+      };
+      expect(body.data.favoriteRepositoryPaths).toEqual([
+        repoSession.group.path,
+      ]);
+
+      const again = await handleApi(
+        jsonRequest(
+          "http://local/api/repositories/favorite",
+          { groupPath: repoSession.group.path, favorite: true },
+          { cookie },
+        ),
+        config,
+        "/api/repositories/favorite",
+      );
+      expect(again?.status).toBe(200);
+
+      const cleared = await handleApi(
+        jsonRequest(
+          "http://local/api/repositories/favorite",
+          { groupPath: repoSession.group.path, favorite: false },
+          { cookie },
+        ),
+        config,
+        "/api/repositories/favorite",
+      );
+      expect(cleared?.status).toBe(200);
+      expect(await cleared?.json()).toEqual({ data: { ok: true } });
+      expect(getSessionDashboard().favoriteRepositoryPaths).toEqual([]);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

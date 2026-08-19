@@ -20,6 +20,7 @@ export type SessionGroup = {
   kind: SessionGroupKind;
   name: string;
   path: string;
+  favorite: boolean;
   worktrees: WorktreeGroup[];
 };
 
@@ -206,7 +207,13 @@ export function groupSessions(
     const { group, worktree } = item;
     let grouped = groups.get(group.path);
     if (!grouped) {
-      grouped = { kind: group.kind, name: group.name, path: group.path, worktrees: [] };
+      grouped = {
+        kind: group.kind,
+        name: group.name,
+        path: group.path,
+        favorite: false,
+        worktrees: [],
+      };
       groups.set(group.path, grouped);
     }
     const key = locationKey(group.path, worktree.path);
@@ -288,11 +295,24 @@ export function projectWorkspaces(
   dashboard: SessionDashboard,
   query: string,
 ): SessionGroup[] {
-  return groupSessions(
+  const favoritePaths = new Set(dashboard.favoriteRepositoryPaths);
+  const groups = groupSessions(
     dashboard.sessions.filter((session) => session.origin !== "adhoc"),
     query,
     dashboard.locations,
     dashboard.recentSessions.filter((session) => session.origin !== "adhoc"),
     "sessions",
   );
+  for (const group of groups) {
+    group.favorite =
+      group.kind === "repository" && favoritePaths.has(group.path);
+  }
+  // Stable partition: favorites first, preserve recency within each side.
+  const favored: SessionGroup[] = [];
+  const rest: SessionGroup[] = [];
+  for (const group of groups) {
+    if (group.favorite) favored.push(group);
+    else rest.push(group);
+  }
+  return favored.concat(rest);
 }
