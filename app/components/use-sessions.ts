@@ -255,8 +255,8 @@ export function useFavoriteRepository() {
         "/api/repositories/favorite",
         postJson({ groupPath, favorite }),
       ),
-    onSuccess: (_data, { groupPath, favorite }) => {
-      updateDashboard(queryClient, (dashboard) => {
+    onMutate: ({ groupPath, favorite }) =>
+      updateDashboardOptimistically(queryClient, (dashboard) => {
         const current = dashboard.favoriteRepositoryPaths;
         const favoriteRepositoryPaths = favorite
           ? current.includes(groupPath)
@@ -264,10 +264,13 @@ export function useFavoriteRepository() {
             : [...current, groupPath]
           : current.filter((path) => path !== groupPath);
         return { ...dashboard, favoriteRepositoryPaths };
-      });
+      }),
+    onError: (error, _variables, context) => {
+      restoreDashboard(queryClient, context?.previousDashboard);
+      toast.error(errorMessage(error, "Could not update favorite"));
     },
-    onError: (error) =>
-      toast.error(errorMessage(error, "Could not update favorite")),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY }),
   });
 }
 
