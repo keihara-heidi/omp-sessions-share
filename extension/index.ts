@@ -605,6 +605,24 @@ function startPollLoop(rt: SessionRuntime): void {
 	}, JOIN_REQUEST_POLL_MS);
 }
 
+async function sendSessionHeartbeat(rt: SessionRuntime): Promise<HostApiResult<unknown>> {
+	const sentAt = Date.now();
+	const heartbeat = await hostApi<unknown>("/api/host/sessions", {
+		method: "POST",
+		body: JSON.stringify({
+			id: rt.sessionId,
+			title: rt.title,
+			cwd: rt.cwd,
+			startedAt: rt.startedAt,
+			origin: rt.origin,
+			pid: process.pid,
+			...(rt.sessionFile !== undefined ? { sessionFile: rt.sessionFile } : {}),
+		} satisfies SessionHeartbeat),
+	});
+	if (heartbeat.ok) rt.lastHeartbeatAt = sentAt;
+	return heartbeat;
+}
+
 async function pollOnce(rt: SessionRuntime): Promise<void> {
 	if (rt.shareStopped || !bridge.webLink || rt.polling) return;
 	if (rt.sessionId !== rt.ctx.sessionManager.getSessionId()) return;
@@ -615,22 +633,9 @@ async function pollOnce(rt: SessionRuntime): Promise<void> {
 		const sessionFile = sessionFileOf(rt.ctx);
 		if (sessionFile !== undefined) rt.sessionFile = sessionFile;
 		else delete rt.sessionFile;
-		const now = Date.now();
-		if (now - rt.lastHeartbeatAt >= 5_000) {
-			const heartbeat = await hostApi<unknown>("/api/host/sessions", {
-				method: "POST",
-				body: JSON.stringify({
-					id: rt.sessionId,
-					title: rt.title,
-					cwd: rt.cwd,
-					startedAt: rt.startedAt,
-					origin: rt.origin,
-					pid: process.pid,
-					...(sessionFile !== undefined ? { sessionFile } : {}),
-				} satisfies SessionHeartbeat),
-			});
+		if (Date.now() - rt.lastHeartbeatAt >= 5_000) {
+			const heartbeat = await sendSessionHeartbeat(rt);
 			if (!heartbeat.ok) notifyError(rt.ctx, `Share heartbeat failed: ${heartbeat.error}`);
-			else rt.lastHeartbeatAt = now;
 		}
 
 		const pending = await hostApi<JoinRequest[]>(
@@ -814,6 +819,11 @@ async function startShare(rt: SessionRuntime): Promise<void> {
 		rt.shareStopped = true;
 		return;
 	}
+
+	// Register as soon as OMP is ready; native collab setup can take seconds.
+	const heartbeat = await sendSessionHeartbeat(rt);
+	if (runtime !== rt || rt.shareStopped) return;
+	if (!heartbeat.ok) notifyError(rt.ctx, `Share heartbeat failed: ${heartbeat.error}`);
 
 	const installed = await installCollabBridge();
 	if (!installed.ok) {
