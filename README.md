@@ -97,7 +97,7 @@ Each page has typo-tolerant search using the same grouping rules. Sessions searc
 
 Dashboard session and location changes arrive as complete snapshots through one authenticated live event stream; no polling or phone reload is needed. EventSource reconnects automatically and receives a fresh snapshot.
 
-System health is fetched independently and cached briefly by the daemon. **Refresh** requests a new snapshot without adding another dashboard event stream. Individual checks fail independently, so available diagnostics remain visible when one local dependency cannot be inspected. **Check for updates** compares the installed version with an exact `main` commit; **Update** hands that commit to `oss` and briefly restarts only the dashboard daemon.
+System health is fetched independently and cached briefly by the daemon. **Refresh** requests a new snapshot without adding another dashboard event stream. Individual checks fail independently, so available diagnostics remain visible when one local dependency cannot be inspected. **Check for updates** compares the installed version with an exact `main` commit. **Update** pins that commit; when the dashboard is running, it stops the daemon and Tailscale ingress before updating, refreshes the local runtime while stopped, then starts both again. A dashboard that was already stopped remains stopped.
 
 Workspace groups start collapsed. Workspace launching remains limited to worktrees advertised by the dashboard’s remembered locations; the Sessions-page New session action instead launches an ad-hoc home-directory session without registering that directory as a Workspace.
 

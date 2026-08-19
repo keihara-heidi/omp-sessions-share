@@ -401,9 +401,9 @@ describe("setup contract without system mutation", () => {
     expect(cliSrc).toMatch(/lower\.includes\("password"\)/);
     expect(cliSrc).toMatch(/lower\.includes\("secret"\)/);
 
-    // setupLocalRuntime takes no secret parameters.
+    // setupLocalRuntime only accepts daemon lifecycle state, never secrets.
     expect(installSrc).toMatch(
-      /export async function setupLocalRuntime\(\): Promise<ShareConfig>/,
+      /export async function setupLocalRuntime\(\s*options: \{ startServer\?: boolean \} = \{\},\s*\): Promise<ShareConfig>/,
     );
     expect(installSrc).not.toMatch(
       /setupLocalRuntime\([^)]*(token|password|secret)/i,

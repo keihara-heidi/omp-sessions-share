@@ -342,7 +342,10 @@ function xmlEscape(value: string): string {
     .replaceAll("'", "&" + "apos;");
 }
 
-async function installLaunchAgent(runtimeRoot: string): Promise<void> {
+async function installLaunchAgent(
+  runtimeRoot: string,
+  startServer: boolean,
+): Promise<void> {
   const home = requireHome();
   const uid = process.getuid!();
   const logsDir = path.join(home, ".omp", "logs");
@@ -380,6 +383,8 @@ async function installLaunchAgent(runtimeRoot: string): Promise<void> {
 `;
   await writeFile(plistPath, plist, { mode: 0o600 });
   await chmod(plistPath, 0o600);
+
+  if (!startServer) return;
 
   const domain = `gui/${uid}`;
   run(["launchctl", "bootout", `${domain}/${LAUNCH_LABEL}`], {
@@ -699,7 +704,9 @@ async function removeLegacyExtensionCopy(): Promise<void> {
  * Idempotent local runtime setup. Safe to call from interactive extension first-run
  * or `omp-sessions-share-setup` CLI. Returns the written ShareConfig.
  */
-export async function setupLocalRuntime(): Promise<ShareConfig> {
+export async function setupLocalRuntime(
+  options: { startServer?: boolean } = {},
+): Promise<ShareConfig> {
   assertDarwin();
   await removeLegacyExtensionCopy();
   const tailscaleBin = resolveTailscaleBin();
@@ -708,8 +715,9 @@ export async function setupLocalRuntime(): Promise<ShareConfig> {
   const runtimeRoot = await copyRuntimeAssets(staticDir);
   const config = await buildConfig(publicOrigin);
   await writeShareConfig(config);
-  await installLaunchAgent(runtimeRoot);
-  await configureTailscaleServe(tailscaleBin);
+  const startServer = options.startServer !== false;
+  await installLaunchAgent(runtimeRoot, startServer);
+  if (startServer) await configureTailscaleServe(tailscaleBin);
   await installLauncherAndAlias();
   return config;
 }
