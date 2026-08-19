@@ -31,6 +31,26 @@ function updateDashboard(
   );
 }
 
+async function updateDashboardOptimistically(
+  queryClient: QueryClient,
+  updater: (dashboard: SessionDashboard) => SessionDashboard,
+) {
+  await queryClient.cancelQueries({ queryKey: DASHBOARD_QUERY_KEY });
+  const previousDashboard =
+    queryClient.getQueryData<SessionDashboard>(DASHBOARD_QUERY_KEY);
+  updateDashboard(queryClient, updater);
+  return { previousDashboard };
+}
+
+function restoreDashboard(
+  queryClient: QueryClient,
+  previousDashboard: SessionDashboard | undefined,
+) {
+  if (previousDashboard) {
+    queryClient.setQueryData(DASHBOARD_QUERY_KEY, previousDashboard);
+  }
+}
+
 export function useDashboardData() {
   const router = useRouter();
   const dashboard = useQuery({
@@ -188,8 +208,8 @@ export function useDeleteWorktree() {
         ...postJson({ groupPath, worktreePath }),
         method: "DELETE",
       }),
-    onSuccess: (_data, { groupPath, worktreePath }) => {
-      updateDashboard(queryClient, (dashboard) => ({
+    onMutate: ({ groupPath, worktreePath }) =>
+      updateDashboardOptimistically(queryClient, (dashboard) => ({
         sessions: dashboard.sessions.filter(
           (session) =>
             session.group.path !== groupPath ||
@@ -205,12 +225,17 @@ export function useDeleteWorktree() {
             recent.group.path !== groupPath ||
             recent.worktree.path !== worktreePath,
         ),
-      }));
+      })),
+    onSuccess: (_data, { worktreePath }) => {
       queryClient.removeQueries({ queryKey: ["pull-request", worktreePath] });
       toast.success("Deleted worktree");
     },
-    onError: (error) =>
-      toast.error(errorMessage(error, "Could not delete worktree")),
+    onError: (error, _variables, context) => {
+      restoreDashboard(queryClient, context?.previousDashboard);
+      toast.error(errorMessage(error, "Could not delete worktree"));
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY }),
   });
 }
 
@@ -223,14 +248,18 @@ export function useDeactivateSession() {
         `/api/sessions/${encodeURIComponent(sessionId)}/deactivate`,
         { method: "POST" },
       ),
-    onSuccess: (_data, sessionId) => {
-      updateDashboard(queryClient, (dashboard) => ({
+    onMutate: (sessionId) =>
+      updateDashboardOptimistically(queryClient, (dashboard) => ({
         ...dashboard,
         sessions: dashboard.sessions.filter((item) => item.id !== sessionId),
-      }));
-      toast.success("Session removed");
+      })),
+    onSuccess: () => toast.success("Session removed"),
+    onError: (error, _sessionId, context) => {
+      restoreDashboard(queryClient, context?.previousDashboard);
+      toast.error(errorMessage(error, "Could not remove session"));
     },
-    onError: (error) => toast.error(errorMessage(error, "Could not remove session")),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY }),
   });
 }
 
@@ -263,16 +292,19 @@ export function useDeleteRecentSession() {
         `/api/recent-sessions/${encodeURIComponent(resumeId)}`,
         { method: "DELETE" },
       ),
-    onSuccess: (_data, resumeId) => {
-      updateDashboard(queryClient, (dashboard) => ({
+    onMutate: (resumeId) =>
+      updateDashboardOptimistically(queryClient, (dashboard) => ({
         ...dashboard,
         recentSessions: dashboard.recentSessions.filter(
           (item) => item.id !== resumeId,
         ),
-      }));
-      toast.success("Recent session removed");
+      })),
+    onSuccess: () => toast.success("Recent session removed"),
+    onError: (error, _resumeId, context) => {
+      restoreDashboard(queryClient, context?.previousDashboard);
+      toast.error(errorMessage(error, "Could not remove recent session"));
     },
-    onError: (error) =>
-      toast.error(errorMessage(error, "Could not remove recent session")),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY }),
   });
 }
