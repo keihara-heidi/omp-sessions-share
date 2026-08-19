@@ -33,6 +33,7 @@ import {
   registerDashboardLocations,
   registerDashboardPaths,
   removeDashboardLocation,
+  setRepositoryFavorite,
   subscribeSessionChanges,
   upsertSession,
 } from "./store";
@@ -56,6 +57,7 @@ import {
   parseLaunchSessionInput,
   parseHostSessionHeartbeat,
   parseRequestDecision,
+  parseSetRepositoryFavoriteInput,
   readJsonBody,
   stripEncryptedLink,
 } from "../lib/contracts";
@@ -681,6 +683,38 @@ async function handleCreateWorktree(
   }
 }
 
+async function handleSetRepositoryFavorite(
+  req: Request,
+  config: ShareConfig,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const input = parseSetRepositoryFavoriteInput(parsedBody.value);
+  if (!input) return err("Invalid body", 400);
+
+  const groupLocations = listDashboardLocations().filter(
+    (location) => location.group.path === input.groupPath,
+  );
+  if (groupLocations.length === 0) return err("Repository not found", 404);
+  if (
+    groupLocations.every((location) => location.group.kind !== "repository")
+  ) {
+    return err("Not a git repository", 400);
+  }
+
+  try {
+    setRepositoryFavorite(input.groupPath, input.favorite);
+  } catch {
+    return err("Could not update favorite", 500);
+  }
+  return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+}
+
 function isAdvertisedWorktreePath(worktreePath: string): boolean {
   return listDashboardLocations().some(
     (location) => location.worktree.path === worktreePath,
@@ -1230,6 +1264,9 @@ export async function handleApi(
   }
   if (pathname === "/api/worktrees/pr-merge" && method === "POST") {
     return handleMergePullRequest(req, config, deps);
+  }
+  if (pathname === "/api/repositories/favorite" && method === "POST") {
+    return handleSetRepositoryFavorite(req, config);
   }
   if (pathname === "/api/events" && method === "GET") {
     return handleEvents(req, config);

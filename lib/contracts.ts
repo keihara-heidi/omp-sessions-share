@@ -47,6 +47,8 @@ export type SessionDashboard = {
   sessions: SessionSummary[];
   locations: DashboardLocation[];
   recentSessions: RecentSessionSummary[];
+  /** Absolute repository group paths marked favorite; order is insignificant. */
+  favoriteRepositoryPaths: string[];
 };
 
 export type JoinRequestStatus = "pending" | "approved" | "denied" | "expired";
@@ -544,6 +546,22 @@ export function parseCreateWorktreeInput(
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const { groupPath } = v as Record<string, unknown>;
   return isNonEmptyString(groupPath, 1024) ? { groupPath } : null;
+}
+
+/** Browser request to favorite or unfavorite an advertised repository group. */
+export type SetRepositoryFavoriteInput = {
+  groupPath: string;
+  favorite: boolean;
+};
+
+export function parseSetRepositoryFavoriteInput(
+  v: unknown,
+): SetRepositoryFavoriteInput | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const { groupPath, favorite } = v as Record<string, unknown>;
+  if (!isNonEmptyString(groupPath, 1024)) return null;
+  if (typeof favorite !== "boolean") return null;
+  return { groupPath, favorite };
 }
 
 /** Browser request to remove a linked Git worktree from a live repo group. */

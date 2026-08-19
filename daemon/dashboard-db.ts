@@ -1,4 +1,4 @@
-/** Private dashboard SQLite — locations + session resumes (bun:sqlite). */
+/** Private dashboard SQLite — locations, resumes, repository favorites (bun:sqlite). */
 
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -21,7 +21,7 @@ import {
 import { getDashboardDbPath } from "../shared/config";
 
 /** Supported schema version written via PRAGMA user_version. */
-export const DASHBOARD_DB_USER_VERSION = 2 as const;
+export const DASHBOARD_DB_USER_VERSION = 3 as const;
 
 /** Retention: drop resume rows older than this many days (unless live-protected). */
 export const RESUME_SESSION_MAX_AGE_DAYS = 90 as const;
@@ -189,12 +189,22 @@ function migrateV0ToV2(db: Database): void {
     CREATE INDEX resume_sessions_group_worktree_idx
       ON resume_sessions (group_path, worktree_path);
   `);
-  db.exec(`PRAGMA user_version = ${DASHBOARD_DB_USER_VERSION}`);
+  db.exec(`PRAGMA user_version = 2`);
 }
 
 /** Add origin to resume rows created by schema v1. */
 function migrateV1ToV2(db: Database): void {
   db.exec("ALTER TABLE resume_sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'workspace'");
+  db.exec(`PRAGMA user_version = 2`);
+}
+
+/** Add repository favorites table. */
+function migrateV2ToV3(db: Database): void {
+  db.exec(`
+    CREATE TABLE favorite_repositories (
+      group_path TEXT PRIMARY KEY NOT NULL
+    );
+  `);
   db.exec(`PRAGMA user_version = ${DASHBOARD_DB_USER_VERSION}`);
 }
 
@@ -212,7 +222,7 @@ export function migrateDashboardDb(db: Database): void {
   if (version === DASHBOARD_DB_USER_VERSION) return;
 
   const run = db.transaction(() => {
-    const current = readUserVersion(db);
+    let current = readUserVersion(db);
     if (current > DASHBOARD_DB_USER_VERSION) {
       throw new Error(
         `dashboard db user_version ${current} is newer than supported ${DASHBOARD_DB_USER_VERSION}`,
@@ -221,13 +231,19 @@ export function migrateDashboardDb(db: Database): void {
     if (current === DASHBOARD_DB_USER_VERSION) return;
     if (current === 0) {
       migrateV0ToV2(db);
-      return;
+      current = 2;
     }
     if (current === 1) {
       migrateV1ToV2(db);
+      current = 2;
+    }
+    if (current === 2) {
+      migrateV2ToV3(db);
       return;
     }
-    throw new Error(`dashboard db user_version ${current} cannot be migrated`);
+    if (current !== DASHBOARD_DB_USER_VERSION) {
+      throw new Error(`dashboard db user_version ${current} cannot be migrated`);
+    }
   });
   run();
 }
@@ -601,6 +617,47 @@ export function deleteDashboardLocation(
     return result.changes > 0;
   });
   return run();
+}
+
+// ── Repository favorites CRUD ─────────────────────────────────────────
+
+/** Absolute repository group paths marked favorite, sorted for stable snapshots. */
+export function listFavoriteRepositoryPaths(
+  handle: DashboardDatabase,
+): string[] {
+  const db = assertOpen(handle);
+  const rows = db
+    .query(
+      `SELECT group_path AS groupPath
+       FROM favorite_repositories
+       ORDER BY group_path ASC`,
+    )
+    .all() as Array<{ groupPath: string }>;
+  return rows.map((row) => row.groupPath);
+}
+
+/**
+ * Insert or delete a favorite repository group path.
+ * Idempotent for both favorite=true and favorite=false.
+ */
+export function setFavoriteRepository(
+  handle: DashboardDatabase,
+  groupPath: string,
+  favorite: boolean,
+): void {
+  if (!isNonEmptyString(groupPath, 1024)) {
+    throw new Error("invalid favorite group path");
+  }
+  const db = assertOpen(handle);
+  if (favorite) {
+    db.query(
+      `INSERT OR IGNORE INTO favorite_repositories (group_path) VALUES (?)`,
+    ).run(groupPath);
+    return;
+  }
+  db.query(`DELETE FROM favorite_repositories WHERE group_path = ?`).run(
+    groupPath,
+  );
 }
 
 // ── Resume session CRUD (DB-05) ───────────────────────────────────────

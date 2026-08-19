@@ -19,9 +19,11 @@ import {
   getResumeSessionBySessionId,
   importLegacyDashboardLocations,
   listDashboardLocations,
+  listFavoriteRepositoryPaths,
   listResumeSessionCandidates,
   openDashboardDb,
   pruneResumeSessions,
+  setFavoriteRepository,
   touchResumeSessionLastSeen,
   upsertDashboardLocation,
   upsertResumeSession,
@@ -174,6 +176,7 @@ describe("migrate dashboard schema", () => {
       .all() as Array<{ name: string }>;
     expect(tables.map((t) => t.name)).toEqual([
       "dashboard_locations",
+      "favorite_repositories",
       "meta",
       "resume_sessions",
     ]);
@@ -243,6 +246,67 @@ describe("migrate dashboard schema", () => {
       user_version: number;
     };
     expect(migratedVersion.user_version).toBe(DASHBOARD_DB_USER_VERSION);
+  });
+
+  test("v2 DB migrates to v3 with empty favorites and intact locations", () => {
+    const dir = makeTemp("omp-dash-v2-fav-");
+    const path = join(dir, "db.sqlite");
+    const raw = new Database(path, { create: true });
+    raw.exec(`
+      CREATE TABLE meta (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE dashboard_locations (
+        group_path TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        group_kind TEXT NOT NULL,
+        group_name TEXT NOT NULL,
+        worktree_name TEXT NOT NULL,
+        worktree_branch TEXT,
+        last_session_started_at TEXT NOT NULL,
+        PRIMARY KEY (group_path, worktree_path)
+      );
+      CREATE TABLE resume_sessions (
+        resume_id TEXT PRIMARY KEY NOT NULL,
+        session_id TEXT NOT NULL UNIQUE,
+        session_file TEXT NOT NULL,
+        title TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        origin TEXT NOT NULL DEFAULT 'workspace',
+        group_kind TEXT NOT NULL,
+        group_name TEXT NOT NULL,
+        group_path TEXT NOT NULL,
+        worktree_name TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        worktree_branch TEXT
+      );
+      INSERT INTO dashboard_locations (
+        group_path, worktree_path, group_kind, group_name,
+        worktree_name, worktree_branch, last_session_started_at
+      ) VALUES (
+        '/repo', '/repo', 'repository', 'repo',
+        'repo', 'main', '2026-08-12T00:00:00.000Z'
+      );
+      PRAGMA user_version = 2;
+    `);
+    raw.close();
+
+    const migrated = openDashboardDb(path);
+    openHandles.push(migrated);
+    const version = migrated.db.query("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    expect(version.user_version).toBe(3);
+    expect(listFavoriteRepositoryPaths(migrated)).toEqual([]);
+    expect(listDashboardLocations(migrated)).toEqual([
+      {
+        group: { kind: "repository", name: "repo", path: "/repo" },
+        worktree: { name: "repo", path: "/repo", branch: "main" },
+        lastSessionStartedAt: "2026-08-12T00:00:00.000Z",
+      },
+    ]);
   });
 
   test("rejects future user_version", () => {
@@ -509,6 +573,40 @@ describe("dashboard location CRUD", () => {
     expect(getResumeSessionByResumeId(handle, a.resumeId)).toBeNull();
     expect(getResumeSessionByResumeId(handle, b.resumeId)?.sessionId).toBe("other-b");
     expect(deleteDashboardLocation(handle, sampleGroup.path, sampleWorktree.path)).toBe(false);
+  });
+});
+
+describe("favorite repository CRUD", () => {
+  test("set true is idempotent and false removes", () => {
+    const handle = openTempDb();
+    expect(listFavoriteRepositoryPaths(handle)).toEqual([]);
+
+    setFavoriteRepository(handle, "/repos/a", true);
+    setFavoriteRepository(handle, "/repos/b", true);
+    setFavoriteRepository(handle, "/repos/a", true);
+    expect(listFavoriteRepositoryPaths(handle)).toEqual([
+      "/repos/a",
+      "/repos/b",
+    ]);
+
+    setFavoriteRepository(handle, "/repos/a", false);
+    setFavoriteRepository(handle, "/repos/a", false);
+    expect(listFavoriteRepositoryPaths(handle)).toEqual(["/repos/b"]);
+
+    setFavoriteRepository(handle, "/repos/b", false);
+    expect(listFavoriteRepositoryPaths(handle)).toEqual([]);
+  });
+
+  test("group_path primary key uniqueness enforced", () => {
+    const handle = openTempDb();
+    handle.db
+      .query(`INSERT INTO favorite_repositories (group_path) VALUES (?)`)
+      .run("/repo");
+    expect(() =>
+      handle.db
+        .query(`INSERT INTO favorite_repositories (group_path) VALUES (?)`)
+        .run("/repo"),
+    ).toThrow();
   });
 });
 

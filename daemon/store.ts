@@ -28,8 +28,10 @@ import {
   getResumeSessionByResumeId,
   importLegacyDashboardLocations,
   listDashboardLocations as listDashboardLocationsFromDb,
+  listFavoriteRepositoryPaths as listFavoriteRepositoryPathsFromDb,
   listResumeSessionCandidates,
   openDashboardDb,
+  setFavoriteRepository as setFavoriteRepositoryInDb,
   touchResumeSessionLastSeen,
   upsertDashboardLocation,
   upsertResumeSession,
@@ -45,6 +47,8 @@ type Timed<T> = { value: T; expiresAt: number };
 const sessions = new Map<string, Timed<SessionSummary>>();
 /** Worktrees remain available after their last live session expires. */
 const dashboardLocations = new Map<string, DashboardLocation>();
+/** Repository group paths marked favorite (absolute SessionGroup.path). */
+const favoriteRepositoryPaths = new Set<string>();
 const inactiveSessionIds = new Set<string>();
 const requests = new Map<string, Timed<JoinRequestResult>>();
 /** sessionId → request ids */
@@ -255,12 +259,20 @@ export function configureDashboardDb(
   }
   dashboardDb = handle;
   dashboardLocations.clear();
+  favoriteRepositoryPaths.clear();
   try {
     for (const location of listDashboardLocationsFromDb(handle)) {
       loadLocationIntoMemory(location);
     }
   } catch {
     // Start with empty in-memory locations if the read fails.
+  }
+  try {
+    for (const groupPath of listFavoriteRepositoryPathsFromDb(handle)) {
+      favoriteRepositoryPaths.add(groupPath);
+    }
+  } catch {
+    // Start with empty favorites if the read fails.
   }
 }
 
@@ -608,7 +620,43 @@ export function getSessionDashboard(): SessionDashboard {
     sessions: live,
     locations: listDashboardLocations(),
     recentSessions: listRecentSessions(live.map((s) => s.id)),
+    favoriteRepositoryPaths: listFavoriteRepositoryPaths(),
   };
+}
+
+/** Absolute repository group paths currently marked favorite. */
+export function listFavoriteRepositoryPaths(): string[] {
+  return [...favoriteRepositoryPaths].sort();
+}
+
+/**
+ * Persist a repository favorite flag and notify dashboard subscribers.
+ * Callers must validate that groupPath is an advertised repository group.
+ */
+export function setRepositoryFavorite(
+  groupPath: string,
+  favorite: boolean,
+): void {
+  const had = favoriteRepositoryPaths.has(groupPath);
+  if (favorite) {
+    if (!had) favoriteRepositoryPaths.add(groupPath);
+  } else if (had) {
+    favoriteRepositoryPaths.delete(groupPath);
+  }
+  if (dashboardDb) {
+    try {
+      setFavoriteRepositoryInDb(dashboardDb, groupPath, favorite);
+    } catch {
+      // Revert memory if durable write fails so snapshot stays consistent.
+      if (favorite) {
+        if (!had) favoriteRepositoryPaths.delete(groupPath);
+      } else if (had) {
+        favoriteRepositoryPaths.add(groupPath);
+      }
+      throw new Error("could not persist repository favorite");
+    }
+  }
+  if (had !== favorite) notifySessionListeners();
 }
 
 /**
@@ -813,6 +861,7 @@ export function resetStoreForTests(): void {
   closeDashboardPersistence();
   sessions.clear();
   dashboardLocations.clear();
+  favoriteRepositoryPaths.clear();
   inactiveSessionIds.clear();
   requests.clear();
   sessionRequestIndex.clear();

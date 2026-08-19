@@ -210,6 +210,7 @@ export function useDeleteWorktree() {
       }),
     onMutate: ({ groupPath, worktreePath }) =>
       updateDashboardOptimistically(queryClient, (dashboard) => ({
+        ...dashboard,
         sessions: dashboard.sessions.filter(
           (session) =>
             session.group.path !== groupPath ||
@@ -236,6 +237,37 @@ export function useDeleteWorktree() {
     },
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY }),
+  });
+}
+
+export function useFavoriteRepository() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      groupPath,
+      favorite,
+    }: {
+      groupPath: string;
+      favorite: boolean;
+    }) =>
+      api<{ ok: true }>(
+        "/api/repositories/favorite",
+        postJson({ groupPath, favorite }),
+      ),
+    onSuccess: (_data, { groupPath, favorite }) => {
+      updateDashboard(queryClient, (dashboard) => {
+        const current = dashboard.favoriteRepositoryPaths;
+        const favoriteRepositoryPaths = favorite
+          ? current.includes(groupPath)
+            ? current
+            : [...current, groupPath]
+          : current.filter((path) => path !== groupPath);
+        return { ...dashboard, favoriteRepositoryPaths };
+      });
+    },
+    onError: (error) =>
+      toast.error(errorMessage(error, "Could not update favorite")),
   });
 }
 
