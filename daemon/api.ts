@@ -1,7 +1,7 @@
 /** /api/* handlers for the local single-tenant daemon. */
-import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 import type { ShareConfig } from "../shared/config";
 import {
@@ -451,8 +451,12 @@ export function buildOmpTerminalArgs(
   worktreePath: string,
   ompPath: string,
   init?: LaunchOmpInit,
+  promptFilePath?: string,
 ): string[] {
   const { prompt, resumeSessionFile, origin } = normalizeLaunchInit(init);
+  if (prompt !== undefined && promptFilePath === undefined) {
+    throw new Error("promptFilePath is required for a prompt launch");
+  }
   const executable =
     origin === "adhoc"
       ? '"/usr/bin/env OMP_SESSION_ORIGIN=adhoc " & quoted form of item 2 of argv'
@@ -462,7 +466,7 @@ export function buildOmpTerminalArgs(
       ? `tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & ${executable} & " --resume " & quoted form of item 3 of argv`
       : prompt === undefined
         ? `tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & ${executable}`
-        : `tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && exec " & ${executable} & " @/dev/null " & quote & "$(/usr/bin/printf %s " & quoted form of item 3 of argv & " | /usr/bin/base64 -D)" & quote`;
+        : `tell application "Terminal" to do script "cd " & quoted form of item 1 of argv & " && trap " & quote & "/bin/rm -rf " & quoted form of item 4 of argv & quote & " EXIT HUP INT TERM; " & ${executable} & " @" & quoted form of item 3 of argv & "; exit"`;
   const argv = [
     "/usr/bin/osascript",
     "-e",
@@ -476,8 +480,8 @@ export function buildOmpTerminalArgs(
   ];
   if (resumeSessionFile !== undefined) {
     argv.push(resumeSessionFile);
-  } else if (prompt !== undefined) {
-    argv.push(Buffer.from(prompt).toString("base64"));
+  } else if (promptFilePath !== undefined) {
+    argv.push(promptFilePath, dirname(promptFilePath));
   }
   return argv;
 }
@@ -490,11 +494,25 @@ async function launchOmpInTerminal(
     throw new Error("worktree is not a directory");
   }
   const ompPath = join(homedir(), ".local", "bin", "omp-share");
-  const proc = Bun.spawn(buildOmpTerminalArgs(worktreePath, ompPath, init), {
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
+  const { prompt } = normalizeLaunchInit(init);
+  const promptDir =
+    prompt === undefined
+      ? undefined
+      : await mkdtemp(join(tmpdir(), "omp-share-prompt-"));
+  const promptFilePath = promptDir && join(promptDir, "prompt.md");
+  try {
+    if (promptFilePath && prompt !== undefined) {
+      await writeFile(promptFilePath, prompt, { mode: 0o600 });
+    }
+    const proc = Bun.spawn(
+      buildOmpTerminalArgs(worktreePath, ompPath, init, promptFilePath),
+      { stdout: "ignore", stderr: "ignore" },
+    );
+    if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
+  } catch (error) {
+    if (promptDir) await rm(promptDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function handleResumeRecentSession(

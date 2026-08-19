@@ -126,16 +126,29 @@ async function rsaPair(): Promise<CryptoKeyPair> {
 }
 
 describe("buildOmpTerminalArgs", () => {
-  test("delivers a multiline prompt as one decoded argument", () => {
+  test("passes prompted launches through a file without shell substitution", () => {
     const prompt =
       "Resolve Merge Conflicts\n\nGoal:\nPreserve the complete prompt.";
-    const args = buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp", prompt);
+    const promptFile = "/tmp/omp-share-prompt/prompt.md";
+    const args = buildOmpTerminalArgs(
+      "/tmp/worktree",
+      "/tmp/omp",
+      prompt,
+      promptFile,
+    );
 
-    expect(args[4]).toContain("$(/usr/bin/printf %s ");
-    expect(args[4]).toContain("@/dev/null");
-    expect(args[4]).not.toContain(prompt);
-    expect(args.at(-1)).not.toContain("\n");
-    expect(Buffer.from(args.at(-1)!, "base64").toString()).toBe(prompt);
+    expect(args[4]).toContain('" @" & quoted form of item 3 of argv');
+    expect(args[4]).toContain("trap");
+    expect(args[4]).not.toContain("$(");
+    expect(args[4]).not.toContain("base64");
+    expect(args).not.toContain(prompt);
+    expect(args.slice(-2)).toEqual([promptFile, "/tmp/omp-share-prompt"]);
+  });
+
+  test("requires a file for prompted launches", () => {
+    expect(() =>
+      buildOmpTerminalArgs("/tmp/worktree", "/tmp/omp", "repair the PR"),
+    ).toThrow(/promptFilePath/);
   });
 
   test("launches plain sessions without a prompt pipeline", () => {
