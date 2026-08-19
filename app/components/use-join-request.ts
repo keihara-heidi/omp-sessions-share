@@ -10,6 +10,7 @@ import type {
 import { api, ApiError, postJson } from "./api";
 
 const POLL_INTERVAL_MS = 250;
+const SESSION_START_ATTEMPTS = 120;
 const POLL_DEADLINE_MS = 5 * 60 * 1_000;
 const COLLAB_FRAGMENT_RE = /^[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{64}$/;
 const PUBLIC_COLLAB_WEB_ORIGIN = "https://my.omp.sh";
@@ -131,10 +132,26 @@ export function useJoinRequest(sessionId: string) {
         "jwk",
         keyPair.publicKey,
       );
-      return api<JoinRequest>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/requests`,
-        postJson({ deviceName: deviceName(), publicKeyJwk }),
-      );
+      const path = `/api/sessions/${encodeURIComponent(sessionId)}/requests`;
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await api<JoinRequest>(
+            path,
+            postJson({ deviceName: deviceName(), publicKeyJwk }),
+          );
+        } catch (error) {
+          if (
+            !(error instanceof ApiError) ||
+            error.status !== 425 ||
+            attempt + 1 >= SESSION_START_ATTEMPTS
+          ) {
+            throw error;
+          }
+          const { promise, resolve } = Promise.withResolvers<void>();
+          setTimeout(resolve, POLL_INTERVAL_MS);
+          await promise;
+        }
+      }
     },
     onSuccess: () => {
       deadlineRef.current = Date.now() + POLL_DEADLINE_MS;

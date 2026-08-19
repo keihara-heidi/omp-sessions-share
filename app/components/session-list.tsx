@@ -75,14 +75,16 @@ export function RecentSessionButton({
   recent,
   now,
   openingId,
+  onSelect,
 }: {
   recent: RecentSessionSummary;
   now: number;
   openingId: string | null;
+  onSelect: (sessionId: string) => void;
 }) {
   const { mutate: deleteSession, isPending: isDeleting } =
     useDeleteRecentSession();
-  const { mutate: resumeSession, isPending: isResuming } =
+  const { mutateAsync: resumeSession, isPending: isResuming } =
     useResumeRecentSession();
 
   return (
@@ -90,7 +92,14 @@ export function RecentSessionButton({
       presence="recent"
       disabled={openingId !== null || isResuming || isDeleting}
       busy={isResuming}
-      onSelect={() => resumeSession(recent.id)}
+      onSelect={async () => {
+        try {
+          await resumeSession(recent.id);
+          onSelect(recent.id);
+        } catch {
+          // The mutation already reports resume failures.
+        }
+      }}
       actionLabel="Resume"
       busyLabel="Resuming…"
       title={recent.title}
@@ -173,6 +182,7 @@ export function SessionLists({
                   recent={recent}
                   now={now}
                   openingId={openingId}
+                  onSelect={onSelect}
                 />
               </li>
             ))}

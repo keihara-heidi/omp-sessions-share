@@ -875,7 +875,16 @@ async function handleCreateRequest(
   if (!input) return err("Invalid body", 400);
 
   try {
-    const request = createRequest({ sessionId, ...input });
+    const resumedSession = getSession(sessionId)
+      ? null
+      : getResumeSession(sessionId);
+    if (resumedSession && !getSession(resumedSession.sessionId)) {
+      return err("Session is starting", 425);
+    }
+    const request = createRequest({
+      sessionId: resumedSession?.sessionId ?? sessionId,
+      ...input,
+    });
     return jsonOk(request, {
       status: 201,
       headers: { "Cache-Control": "no-store" },
