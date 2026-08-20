@@ -5,6 +5,7 @@ import {
   computeCpuPercent,
   createSystemMetricsService,
   HOST_METRICS_MAX_POINTS,
+  parseVmStatMemoryUsed,
   type CpuTimesSnapshot,
   type SystemMetricsService,
 } from "../daemon/system-metrics";
@@ -190,6 +191,20 @@ describe("computeCpuPercent", () => {
   });
 });
 
+describe("parseVmStatMemoryUsed", () => {
+  test("matches Activity Monitor by excluding reclaimable file cache", () => {
+    const vmStat = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                               18706.
+Pages wired down:                        219159.
+File-backed pages:                       775285.
+Anonymous pages:                        1735800.
+Pages occupied by compressor:            334793.
+`;
+
+    expect(parseVmStatMemoryUsed(vmStat)).toBe(37_515_296_768);
+  });
+});
+
 describe("createSystemMetricsService", () => {
   test("first sample may have null CPU; later samples use deltas", () => {
     let tick = 0;
@@ -203,7 +218,7 @@ describe("createSystemMetricsService", () => {
             new Date(Date.UTC(2026, 7, 20, 12, 0, tick)).toISOString(),
           hostname: () => "test-host",
           totalmem: () => 1000,
-          freemem: () => 400,
+          memoryUsed: () => 600,
           cpuTimes: () => ({ idle, total }),
         },
       }),
@@ -243,7 +258,7 @@ describe("createSystemMetricsService", () => {
             new Date(Date.UTC(2026, 7, 20, 12, 0, tick)).toISOString(),
           hostname: () => "ring-host",
           totalmem: () => 100,
-          freemem: () => 50,
+          memoryUsed: () => 50,
           cpuTimes: () => {
             const snap = { idle, total };
             idle += 25;
@@ -283,12 +298,12 @@ describe("createSystemMetricsService", () => {
           nowIso: () => "2026-08-20T12:00:00.000Z",
           hostname: () => "clamp-host",
           totalmem: () => 100,
-          freemem: () => 250,
+          memoryUsed: () => 250,
           cpuTimes: () => ({ idle: 1, total: 1 }),
         },
       }),
     );
-    expect(service.getMetrics().points[0]?.memoryUsedBytes).toBe(0);
+    expect(service.getMetrics().points[0]?.memoryUsedBytes).toBe(100);
   });
 });
 

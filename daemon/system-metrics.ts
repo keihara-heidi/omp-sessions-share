@@ -20,7 +20,8 @@ export type HostMetricsSource = {
   nowIso: () => string;
   hostname: () => string;
   totalmem: () => number;
-  freemem: () => number;
+  /** App/anonymous + wired + compressed bytes, matching Activity Monitor. */
+  memoryUsed: () => number;
   /** Summed cumulative idle/total ticks across cores. */
   cpuTimes: () => CpuTimesSnapshot;
 };
@@ -52,12 +53,37 @@ function defaultCpuTimes(): CpuTimesSnapshot {
   return { idle, total };
 }
 
+/** Parse the three resident categories used by macOS Activity Monitor. */
+export function parseVmStatMemoryUsed(output: string): number | null {
+  const pageSize = /page size of (\d+) bytes/.exec(output)?.[1];
+  const anonymous = /^Anonymous pages:\s+(\d+)\.?$/m.exec(output)?.[1];
+  const wired = /^Pages wired down:\s+(\d+)\.?$/m.exec(output)?.[1];
+  const compressed =
+    /^Pages occupied by compressor:\s+(\d+)\.?$/m.exec(output)?.[1];
+  if (!pageSize || !anonymous || !wired || !compressed) return null;
+  const used =
+    (Number(anonymous) + Number(wired) + Number(compressed)) * Number(pageSize);
+  return Number.isSafeInteger(used) && used >= 0 ? used : null;
+}
+
+function defaultMemoryUsed(): number {
+  const result = Bun.spawnSync(["/usr/bin/vm_stat"], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  if (result.exitCode === 0) {
+    const used = parseVmStatMemoryUsed(result.stdout.toString());
+    if (used !== null) return used;
+  }
+  return osTotalmem() - osFreemem();
+}
+
 function defaultSource(): HostMetricsSource {
   return {
     nowIso: () => new Date().toISOString(),
     hostname: () => osHostname(),
     totalmem: () => osTotalmem(),
-    freemem: () => osFreemem(),
+    memoryUsed: defaultMemoryUsed,
     cpuTimes: defaultCpuTimes,
   };
 }
@@ -107,9 +133,8 @@ export function createSystemMetricsService(
   function sample(): HostMetrics {
     hostName = source.hostname();
     const total = Math.max(0, Math.floor(source.totalmem()));
-    const free = clamp(Math.floor(source.freemem()), 0, total);
+    const used = clamp(Math.floor(source.memoryUsed()), 0, total);
     memoryTotalBytes = total;
-    const used = clamp(total - free, 0, total);
     const now = source.nowIso();
     const cpu = source.cpuTimes();
 
