@@ -10,6 +10,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ShareConfig } from "../shared/config";
 import {
+  buildOmpGhosttyArgs,
   buildOmpTerminalArgs,
   handleApi,
   SERVER_IDLE_TIMEOUT_SECONDS,
@@ -157,6 +158,20 @@ describe("buildOmpTerminalArgs", () => {
     expect(args[4]).not.toContain("/usr/bin/base64");
     expect(args[4]).not.toContain("--resume");
     expect(args.at(-1)).toBe("/tmp/omp");
+  });
+
+  test("launches Ghostty through AppleScript without command-line execution", () => {
+    const args = buildOmpGhosttyArgs("/tmp/worktree", "/tmp/omp", {
+      origin: "adhoc",
+    });
+
+    expect(args[0]).toBe("/usr/bin/osascript");
+    expect(args).not.toContain("/usr/bin/open");
+    expect(args.join(" ")).toContain('tell application "Ghostty"');
+    expect(args.join(" ")).toContain("new window with configuration");
+    expect(args.join(" ")).toContain("initial working directory");
+    expect(args.join(" ")).toContain("OMP_SESSION_ORIGIN=adhoc");
+    expect(args.slice(-2)).toEqual(["/tmp/worktree", "/tmp/omp"]);
   });
 
 
