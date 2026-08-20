@@ -451,6 +451,57 @@ function normalizeLaunchInit(init?: LaunchOmpInit): {
 }
 
 
+export function buildOmpGhosttyArgs(
+  worktreePath: string,
+  ompPath: string,
+  init?: LaunchOmpInit,
+  promptFilePath?: string,
+): string[] {
+  const { prompt, resumeSessionFile, origin } = normalizeLaunchInit(init);
+  if (prompt !== undefined && promptFilePath === undefined) {
+    throw new Error("promptFilePath is required for a prompt launch");
+  }
+  const executable =
+    origin === "adhoc"
+      ? '/usr/bin/env OMP_SESSION_ORIGIN=adhoc "$1"'
+      : '"$1"';
+  const shellScript =
+    resumeSessionFile !== undefined
+      ? `exec ${executable} --resume "$2"`
+      : prompt === undefined
+        ? `exec ${executable}`
+        : `trap '/bin/rm -rf "$3"' EXIT HUP INT TERM; ${executable} @"$2"; exit`;
+  const extraArgs =
+    resumeSessionFile !== undefined
+      ? [resumeSessionFile]
+      : promptFilePath !== undefined
+        ? [promptFilePath, dirname(promptFilePath)]
+        : [];
+  const commandArgs = [
+    "quoted form of item -1 of argv",
+    ...extraArgs.map((_, index) => `quoted form of item ${index + 2} of argv`),
+  ];
+  const launchCommand =
+    'set launchCommand to "/bin/zsh -lc " & quoted form of item 1 of argv & " omp-session " & ' +
+    commandArgs.join(' & " " & ');
+
+  return [
+    "/usr/bin/osascript",
+    "-e",
+    "on run argv",
+    "-e",
+    launchCommand,
+    "-e",
+    'tell application "Ghostty" to new window with configuration {initial working directory:item -2 of argv, command:launchCommand}',
+    "-e",
+    "end run",
+    shellScript,
+    ...extraArgs,
+    worktreePath,
+    ompPath,
+  ];
+}
+
 export function buildOmpTerminalArgs(
   worktreePath: string,
   ompPath: string,
@@ -508,11 +559,24 @@ async function launchOmpInTerminal(
     if (promptFilePath && prompt !== undefined) {
       await writeFile(promptFilePath, prompt, { mode: 0o600 });
     }
-    const proc = Bun.spawn(
+    const launchArgs: string[][] = [];
+    try {
+      if ((await stat("/Applications/Ghostty.app")).isDirectory()) {
+        launchArgs.push(
+          buildOmpGhosttyArgs(worktreePath, ompPath, init, promptFilePath),
+        );
+      }
+    } catch {
+      // Ghostty is optional.
+    }
+    launchArgs.push(
       buildOmpTerminalArgs(worktreePath, ompPath, init, promptFilePath),
-      { stdout: "ignore", stderr: "ignore" },
     );
-    if ((await proc.exited) !== 0) throw new Error("Terminal launch failed");
+    for (const args of launchArgs) {
+      const proc = Bun.spawn(args, { stdout: "ignore", stderr: "ignore" });
+      if ((await proc.exited) === 0) return;
+    }
+    throw new Error("Terminal launch failed");
   } catch (error) {
     if (promptDir) await rm(promptDir, { recursive: true, force: true });
     throw error;
