@@ -60,7 +60,7 @@ From the dashboard:
 1. **Sessions** joins Live sessions, marks them inactive, resumes exact prior conversations from Recent, forgets Recent entries, and starts ad-hoc OMP sessions in the host home directory. Ad-hoc sessions remain in Sessions and never become remembered Workspaces.
 2. **Workspaces** starts blank sessions only in remembered worktrees. Repository groups can create sibling linked worktrees; linked worktrees can be deleted when clean without deleting their branches.
 3. Repository worktrees show pull-request readiness. Applicable actions start focused OMP repair sessions for conflicts, failed checks, requested changes, or unresolved review comments; ready pull requests can be merged directly.
-4. **System** reports daemon, runtime, database, Tailscale, local-tool, and sleep-inhibitor health. Remediation remains terminal-driven.
+4. **System** reports live host CPU and memory usage plus daemon, runtime, database, Tailscale, local-tool, and sleep-inhibitor health. Remediation remains terminal-driven.
 
 Marking a Live session inactive SIGTERMs its OMP process only when no other live dashboard session shares that process. It does not close the containing terminal or IDE. Resumable inactive sessions move to Recent; resuming opens the exact session in its original worktree. The browser never receives the host session JSONL path.
 
@@ -86,6 +86,7 @@ Workspaces (/workspaces/)
         └── PR status and workspace actions
 
 System (/system/)
+├── Host health (live CPU and memory, up to 15 minutes)
 ├── Core
 ├── Connectivity
 ├── Tools
@@ -98,6 +99,8 @@ Each page has typo-tolerant search using the same grouping rules. Sessions searc
 Dashboard session and location changes arrive as complete snapshots through one authenticated live event stream; no polling or phone reload is needed. EventSource reconnects automatically and receives a fresh snapshot.
 
 System health is fetched independently and cached briefly by the daemon. **Refresh** requests a new snapshot without adding another dashboard event stream. Individual checks fail independently, so available diagnostics remain visible when one local dependency cannot be inspected. **Check for updates** compares the installed version with an exact `main` commit. **Update** pins that commit; when the dashboard is running, it stops the daemon and Tailscale ingress before updating, refreshes the local runtime while stopped, then starts both again. A dashboard that was already stopped remains stopped.
+
+Host CPU and memory samples are held in a bounded in-memory 15-minute window. The System page receives an initial authenticated snapshot, then complete snapshots every five seconds through a dedicated EventSource stream. Pausing closes only the browser stream; daemon sampling continues, so resuming restores the complete recent window. Metrics are not persisted and do not share the session event stream.
 
 Workspace groups start collapsed. Workspace launching remains limited to worktrees advertised by the dashboard’s remembered locations; the Sessions-page New session action instead launches an ad-hoc home-directory session without registering that directory as a Workspace.
 
@@ -138,7 +141,7 @@ Uninstall removes the local daemon, Tailscale Serve, launchers, share config, th
 - Host and cookie secrets never leave the Mac.
 - Live presence expires after 15 seconds without a host heartbeat. Remembered worktrees and Recent sessions persist in private SQLite; they do not disappear when the daemon restarts.
 - The browser never receives the host session JSONL path.
-- System health returns fixed summaries only. It never returns raw command output, exception text, process arguments, tokens, cookies, usernames, or private local paths.
+- System health returns fixed summaries only. Host metrics return the local hostname and bounded CPU/memory samples only. Neither endpoint returns raw command output, exception text, process arguments, tokens, cookies, usernames, or private local paths.
 - The public `my.omp.sh` origin serves only OMP's static browser client; session traffic connects to the private tailnet relay.
 
 ## License

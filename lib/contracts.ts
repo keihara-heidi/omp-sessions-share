@@ -111,6 +111,85 @@ export type PluginUpdateStatus = {
   updateAvailable: boolean;
 };
 
+export type HostMetricsPoint = {
+  sampledAt: string;
+  cpuPercent: number | null;
+  memoryUsedBytes: number;
+};
+
+export type HostMetrics = {
+  hostName: string;
+  sampledAt: string;
+  memoryTotalBytes: number;
+  points: HostMetricsPoint[];
+};
+
+const HOST_METRICS_MAX_POINTS = 180;
+const HOST_NAME_MAX = 255;
+
+function isBoundedFinite(
+  v: unknown,
+  min: number,
+  max: number,
+): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
+}
+
+function parseHostMetricsPoint(
+  v: unknown,
+  memoryTotalBytes: number,
+): HostMetricsPoint | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!isIsoTimestamp(o.sampledAt)) return null;
+  if (
+    o.cpuPercent !== null &&
+    !isBoundedFinite(o.cpuPercent, 0, 100)
+  ) {
+    return null;
+  }
+  if (!isBoundedFinite(o.memoryUsedBytes, 0, memoryTotalBytes)) return null;
+  return {
+    sampledAt: o.sampledAt,
+    cpuPercent: o.cpuPercent as number | null,
+    memoryUsedBytes: o.memoryUsedBytes,
+  };
+}
+
+/** Full local-host metrics snapshot (≤180 ascending samples). */
+export function parseHostMetrics(v: unknown): HostMetrics | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!isNonEmptyString(o.hostName, HOST_NAME_MAX)) return null;
+  if (!isIsoTimestamp(o.sampledAt)) return null;
+  if (!isBoundedFinite(o.memoryTotalBytes, 1, Number.MAX_SAFE_INTEGER)) {
+    return null;
+  }
+  if (!Array.isArray(o.points) || o.points.length > HOST_METRICS_MAX_POINTS) {
+    return null;
+  }
+  const points: HostMetricsPoint[] = [];
+  let prevTs = -Infinity;
+  for (const item of o.points) {
+    const point = parseHostMetricsPoint(item, o.memoryTotalBytes);
+    if (!point) return null;
+    const ts = Date.parse(point.sampledAt);
+    if (!(ts > prevTs)) return null;
+    prevTs = ts;
+    points.push(point);
+  }
+  if (points.length > 0) {
+    const last = points[points.length - 1]!;
+    if (last.sampledAt !== o.sampledAt) return null;
+  }
+  return {
+    hostName: o.hostName,
+    sampledAt: o.sampledAt,
+    memoryTotalBytes: o.memoryTotalBytes,
+    points,
+  };
+}
+
 export function parsePluginUpdateStatus(v: unknown): PluginUpdateStatus | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;

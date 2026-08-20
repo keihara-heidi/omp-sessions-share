@@ -1,4 +1,5 @@
 import { CircleCheck, CircleHelp, CircleX, RefreshCw, TriangleAlert } from "lucide-react";
+import { HostHealthSection } from "@/app/components/host-health-section";
 import { PluginUpdateCard } from "@/app/components/plugin-update-card";
 import { Badge, type BadgeVariant } from "@/components/ds/badge";
 import { BusyIcon } from "@/components/ds/session";
@@ -165,6 +166,8 @@ export function SystemHealthReport({
           </CardContent>
         </Card>
       </section>
+
+      <HostHealthSection />
 
       <PluginUpdateCard
         status={updateStatus}

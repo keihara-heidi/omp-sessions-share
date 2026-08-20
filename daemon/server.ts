@@ -27,6 +27,7 @@ import {
   subscribeSessionChanges,
 } from "./store";
 import { createSystemHealthService } from "./system-health";
+import { createSystemMetricsService } from "./system-metrics";
 import { createPluginUpdateService } from "./plugin-update";
 
 /** Pathname only — never query, body, headers, or secrets. */
@@ -81,9 +82,12 @@ async function main(): Promise<void> {
     isSleepInhibitorActive: () => sleepInhibitor.active,
     isSleepInhibitorRequired: () => listSessions().length > 0,
   });
+  const systemMetrics = createSystemMetricsService();
   const pluginUpdate = createPluginUpdateService();
   const apiDeps = {
     getSystemHealth: systemHealth.getHealth,
+    getHostMetrics: systemMetrics.getMetrics,
+    subscribeHostMetrics: systemMetrics.subscribe,
     checkPluginUpdate: pluginUpdate.check,
     startPluginUpdate: pluginUpdate.start,
   };
@@ -160,6 +164,7 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     unsubscribeSessions();
+    systemMetrics.stop();
     sleepInhibitor.stop();
     shutdownRelay();
     try {

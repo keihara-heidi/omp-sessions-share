@@ -40,6 +40,7 @@ import {
 
 import {
   type DashboardLocation,
+  type HostMetrics,
   type PullRequestAction,
   type SystemHealth,
   type PluginUpdateStatus,
@@ -426,6 +427,8 @@ type ApiDeps = {
   ) => boolean;
   mergePullRequest?: (status: WorktreePullRequestStatus) => Promise<void>;
   getSystemHealth?: () => Promise<SystemHealth>;
+  getHostMetrics?: () => HostMetrics;
+  subscribeHostMetrics?: (listener: (metrics: HostMetrics) => void) => () => void;
   checkPluginUpdate?: () => Promise<PluginUpdateStatus>;
   startPluginUpdate?: (commit: string) => void;
 };
@@ -1192,6 +1195,124 @@ async function handleSystemHealth(
   }
 }
 
+async function handleHostMetrics(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!deps.getHostMetrics) {
+    return err("Service unavailable", 503);
+  }
+  try {
+    return jsonOk(deps.getHostMetrics(), {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch {
+    return err("Service unavailable", 503);
+  }
+}
+
+async function handleHostMetricsEvents(
+  req: Request,
+  config: ShareConfig,
+  deps: ApiDeps,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!deps.getHostMetrics || !deps.subscribeHostMetrics) {
+    return err("Service unavailable", 503);
+  }
+
+  const encoder = new TextEncoder();
+  let unsub: (() => void) | undefined;
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  let closed = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const enqueue = (chunk: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(chunk));
+        } catch {
+          closed = true;
+        }
+      };
+      const sendMetrics = (metrics: HostMetrics) => {
+        enqueue(
+          `event: metrics\ndata: ${JSON.stringify({ data: metrics })}\n\n`,
+        );
+      };
+
+      // Full snapshot on connect so reconnect heals gaps.
+      try {
+        sendMetrics(deps.getHostMetrics!());
+      } catch {
+        closed = true;
+        try {
+          controller.error(new Error("metrics unavailable"));
+        } catch {
+          // already closed
+        }
+        return;
+      }
+
+      unsub = deps.subscribeHostMetrics!((metrics) => {
+        sendMetrics(metrics);
+      });
+
+      keepalive = setInterval(() => {
+        enqueue(`: ka\n\n`);
+      }, SSE_KEEPALIVE_MS);
+      if (typeof keepalive === "object" && keepalive && "unref" in keepalive) {
+        keepalive.unref();
+      }
+
+      const onAbort = () => {
+        if (closed) return;
+        closed = true;
+        unsub?.();
+        unsub = undefined;
+        if (keepalive !== undefined) {
+          clearInterval(keepalive);
+          keepalive = undefined;
+        }
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+      };
+      if (req.signal.aborted) {
+        onAbort();
+        return;
+      }
+      req.signal.addEventListener("abort", onAbort, { once: true });
+    },
+    cancel() {
+      closed = true;
+      unsub?.();
+      unsub = undefined;
+      if (keepalive !== undefined) {
+        clearInterval(keepalive);
+        keepalive = undefined;
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store, no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+
 async function handlePluginUpdateCheck(
   req: Request,
   config: ShareConfig,
@@ -1302,6 +1423,12 @@ export async function handleApi(
   }
   if (pathname === "/api/system/health" && method === "GET") {
     return handleSystemHealth(req, config, deps);
+  }
+  if (pathname === "/api/system/metrics" && method === "GET") {
+    return handleHostMetrics(req, config, deps);
+  }
+  if (pathname === "/api/system/metrics/events" && method === "GET") {
+    return handleHostMetricsEvents(req, config, deps);
   }
   if (pathname === "/api/system/update/check" && method === "POST") {
     return handlePluginUpdateCheck(req, config, deps);
