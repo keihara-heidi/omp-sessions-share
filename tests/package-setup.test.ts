@@ -146,6 +146,19 @@ describe("public package manifest", () => {
     const license = await readFile(path.join(ROOT, "LICENSE"), "utf8");
     expect(license.startsWith("MIT License")).toBe(true);
   });
+
+  test("packaged System page includes live host health UI", async () => {
+    const html = await readFile(path.join(ROOT, "out/system/index.html"), "utf8");
+    const script =
+      /src="(\/_next\/static\/chunks\/app\/[^\"]*\/system\/page-[^\"]+\.js)"/.exec(
+        html,
+      )?.[1];
+    expect(script).toBeTruthy();
+    const chunk = await readFile(path.join(ROOT, "out", script!.slice(1)), "utf8");
+    expect(chunk).toContain("Host health");
+    expect(chunk).toContain("/api/system/metrics/events");
+  });
+
 });
 
 describe("share config parse/write", () => {
