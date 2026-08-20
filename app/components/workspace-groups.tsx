@@ -8,6 +8,7 @@ import { FavoriteRepositoryButton } from "@/app/components/favorite-repository-b
 import { NewSessionButton } from "@/app/components/new-session-button";
 import { useCreateWorktree } from "@/app/components/use-sessions";
 import { PullRequestSection } from "@/app/components/pull-request-section";
+import { RemoveWorkspaceButton } from "@/app/components/workspace-remove-button";
 import {
   WorkspaceCounts,
   WorkspaceSessions,
@@ -151,6 +152,13 @@ function WorkspaceGroup({
             </span>
           </>
         ) : null}
+        <span className="self-center">
+          <RemoveWorkspaceButton
+            groupPath={group.path}
+            groupName={group.name}
+            liveSessions={live}
+          />
+        </span>
       </GroupSummary>
       {expanded ? (
         <GroupBody>

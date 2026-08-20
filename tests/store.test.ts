@@ -28,6 +28,7 @@ import {
   listRequestsBySession,
   listSessions,
   registerDashboardLocations,
+  removeDashboardGroup,
   removeDashboardLocation,
   resetStoreForTests,
   setNowForTests,
@@ -794,6 +795,42 @@ describe("subscribeSessionChanges", () => {
     expect(good).toBe(1);
     unsubBad();
     unsubGood();
+  });
+});
+
+describe("workspace removal", () => {
+  test("removes every persisted location and favorite for a group", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-remove-workspace-"));
+    const dbPath = join(root, "dash.sqlite");
+    const group = { kind: "repository" as const, name: "repo", path: "/tmp/repo" };
+    try {
+      configureDashboardDb(dbPath);
+      registerDashboardLocations([
+        {
+          group,
+          worktree: { name: "main", path: "/tmp/repo", branch: "main" },
+          lastSessionStartedAt: "2026-08-12T00:00:00.000Z",
+        },
+        {
+          group,
+          worktree: { name: "feature", path: "/tmp/repo-feature", branch: "feature" },
+          lastSessionStartedAt: "2026-08-13T00:00:00.000Z",
+        },
+      ]);
+      setRepositoryFavorite(group.path, true);
+
+      expect(removeDashboardGroup(group.path)).toBe(true);
+      expect(getSessionDashboard().locations).toEqual([]);
+      expect(getSessionDashboard().favoriteRepositoryPaths).toEqual([]);
+
+      resetStoreForTests();
+      configureDashboardDb(dbPath);
+      expect(getSessionDashboard().locations).toEqual([]);
+      expect(getSessionDashboard().favoriteRepositoryPaths).toEqual([]);
+    } finally {
+      resetStoreForTests();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

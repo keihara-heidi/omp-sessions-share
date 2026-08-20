@@ -8,6 +8,7 @@ import {
   parseLaunchSessionInput,
   parseHostSessionHeartbeat,
   parseRecentSessionSummary,
+  parseRemoveWorkspaceInput,
   parseRequestDecision,
   parseSessionWorktree,
   parseSessionGroup,
@@ -223,6 +224,10 @@ describe("contracts validators", () => {
       groupPath: "/tmp/repo",
     });
     expect(parseCreateWorktreeInput({ groupPath: "" })).toBeNull();
+    expect(parseRemoveWorkspaceInput({ groupPath: "/tmp/repo" })).toEqual({
+      groupPath: "/tmp/repo",
+    });
+    expect(parseRemoveWorkspaceInput({ groupPath: "" })).toBeNull();
     expect(
       parseCreateJoinRequestInput({
         deviceName: "phone",

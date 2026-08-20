@@ -23,6 +23,7 @@ import {
   DASHBOARD_DB_USER_VERSION,
   checkpointDashboardDb,
   closeDashboardDb,
+  deleteDashboardGroup,
   deleteDashboardLocation,
   deleteResumeSessionByResumeId,
   getResumeSessionByResumeId,
@@ -702,6 +703,28 @@ export function removeDashboardLocation(
     }
   }
   const removed = removedMemory || removedDb;
+  if (removed) notifySessionListeners();
+  return removed;
+}
+
+/**
+ * Unregister a whole folder/repository group from Workspaces.
+ * The caller must reject groups with live sessions before invoking this.
+ */
+export function removeDashboardGroup(groupPath: string): boolean {
+  const matchingKeys = [...dashboardLocations.entries()]
+    .filter(([, location]) => location.group.path === groupPath)
+    .map(([key]) => key);
+  const hadFavorite = favoriteRepositoryPaths.has(groupPath);
+
+  let removedDb = false;
+  if (dashboardDb) {
+    removedDb = deleteDashboardGroup(dashboardDb, groupPath);
+  }
+
+  for (const key of matchingKeys) dashboardLocations.delete(key);
+  favoriteRepositoryPaths.delete(groupPath);
+  const removed = matchingKeys.length > 0 || hadFavorite || removedDb;
   if (removed) notifySessionListeners();
   return removed;
 }

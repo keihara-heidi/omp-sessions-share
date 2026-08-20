@@ -274,6 +274,41 @@ export function useFavoriteRepository() {
   });
 }
 
+export function useRemoveWorkspace() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (groupPath: string) =>
+      api<{ ok: true }>("/api/workspaces", {
+        ...postJson({ groupPath }),
+        method: "DELETE",
+      }),
+    onMutate: (groupPath) =>
+      updateDashboardOptimistically(queryClient, (dashboard) => ({
+        ...dashboard,
+        sessions: dashboard.sessions.filter(
+          (session) => session.group.path !== groupPath,
+        ),
+        locations: dashboard.locations.filter(
+          (location) => location.group.path !== groupPath,
+        ),
+        recentSessions: dashboard.recentSessions.filter(
+          (session) => session.group.path !== groupPath,
+        ),
+        favoriteRepositoryPaths: dashboard.favoriteRepositoryPaths.filter(
+          (path) => path !== groupPath,
+        ),
+      })),
+    onSuccess: () => toast.success("Removed workspace"),
+    onError: (error, _groupPath, context) => {
+      restoreDashboard(queryClient, context?.previousDashboard);
+      toast.error(errorMessage(error, "Could not remove workspace"));
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY }),
+  });
+}
+
 export function useDeactivateSession() {
   const queryClient = useQueryClient();
 

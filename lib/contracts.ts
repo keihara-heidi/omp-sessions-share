@@ -643,6 +643,17 @@ export function parseSetRepositoryFavoriteInput(
   return { groupPath, favorite };
 }
 
+/** Browser request to unregister a folder or repository from Workspaces. */
+export type RemoveWorkspaceInput = { groupPath: string };
+
+export function parseRemoveWorkspaceInput(
+  v: unknown,
+): RemoveWorkspaceInput | null {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const { groupPath } = v as Record<string, unknown>;
+  return isNonEmptyString(groupPath, 1024) ? { groupPath } : null;
+}
+
 /** Browser request to remove a linked Git worktree from a live repo group. */
 export type DeleteWorktreeInput = {
   groupPath: string;

@@ -11,6 +11,7 @@ import {
   RESUME_SESSION_MAX_ROWS,
   checkpointDashboardDb,
   closeDashboardDb,
+  deleteDashboardGroup,
   deleteDashboardLocation,
   deleteResumeSessionByResumeId,
   deleteResumeSessionBySessionId,
@@ -573,6 +574,52 @@ describe("dashboard location CRUD", () => {
     expect(getResumeSessionByResumeId(handle, a.resumeId)).toBeNull();
     expect(getResumeSessionByResumeId(handle, b.resumeId)?.sessionId).toBe("other-b");
     expect(deleteDashboardLocation(handle, sampleGroup.path, sampleWorktree.path)).toBe(false);
+  });
+
+  test("delete group unregisters every worktree, resume, and favorite", () => {
+    const handle = openTempDb();
+    const linkedWorktree = { name: "feature", path: "/tmp/repo-feature", branch: "feature" };
+    const otherGroup = { kind: "folder" as const, name: "other", path: "/tmp/other" };
+    const otherWorktree = { name: "other", path: "/tmp/other" };
+    for (const worktree of [sampleWorktree, linkedWorktree]) {
+      upsertDashboardLocation(handle, {
+        group: sampleGroup,
+        worktree,
+        lastSessionStartedAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+    upsertDashboardLocation(handle, {
+      group: otherGroup,
+      worktree: otherWorktree,
+      lastSessionStartedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const mainResume = upsertResumeSession(
+      handle,
+      resumeInput({ sessionId: "group-main", worktree: sampleWorktree }),
+    );
+    const linkedResume = upsertResumeSession(
+      handle,
+      resumeInput({ sessionId: "group-linked", worktree: linkedWorktree }),
+    );
+    const otherResume = upsertResumeSession(
+      handle,
+      resumeInput({
+        sessionId: "group-other",
+        group: otherGroup,
+        worktree: otherWorktree,
+      }),
+    );
+    setFavoriteRepository(handle, sampleGroup.path, true);
+
+    expect(deleteDashboardGroup(handle, sampleGroup.path)).toBe(true);
+    expect(listDashboardLocations(handle).map((location) => location.group.path)).toEqual([
+      otherGroup.path,
+    ]);
+    expect(getResumeSessionByResumeId(handle, mainResume.resumeId)).toBeNull();
+    expect(getResumeSessionByResumeId(handle, linkedResume.resumeId)).toBeNull();
+    expect(getResumeSessionByResumeId(handle, otherResume.resumeId)).not.toBeNull();
+    expect(listFavoriteRepositoryPaths(handle)).toEqual([]);
+    expect(deleteDashboardGroup(handle, sampleGroup.path)).toBe(false);
   });
 });
 

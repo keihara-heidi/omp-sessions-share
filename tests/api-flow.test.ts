@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -2164,6 +2165,58 @@ describe("recent session resume", () => {
       },
     });
     expect(listRecentSessions()).toEqual([]);
+  });
+});
+
+describe("workspace removal API", () => {
+  function removeRequest(groupPath: string, cookie?: string): Request {
+    return new Request("http://local/api/workspaces", {
+      method: "DELETE",
+      headers: {
+        "content-type": "application/json",
+        ...(cookie ? { cookie } : {}),
+      },
+      body: JSON.stringify({ groupPath }),
+    });
+  }
+
+  test("requires auth, rejects live sessions, and unregisters without deleting files", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "omp-api-remove-workspace-"));
+    try {
+      const session = upsertSession({
+        id: "remove_workspace_source",
+        title: "Workspace session",
+        cwd: folder,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      });
+
+      const unauthorized = await api(removeRequest(session.group.path));
+      expect(unauthorized.status).toBe(401);
+
+      const cookie = await loginCookie();
+      const invalid = await api(removeRequest("", cookie));
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual({ error: "Invalid body" });
+
+      const unknown = await api(removeRequest("/tmp/not-advertised", cookie));
+      expect(unknown.status).toBe(404);
+      expect(await unknown.json()).toEqual({ error: "Workspace not found" });
+
+      const live = await api(removeRequest(session.group.path, cookie));
+      expect(live.status).toBe(409);
+      expect(await live.json()).toEqual({
+        error: "Remove live sessions before removing this workspace",
+      });
+
+      expect(deactivateSession(session.id)).toBe(true);
+      const removed = await api(removeRequest(session.group.path, cookie));
+      expect(removed.status).toBe(200);
+      expect(await removed.json()).toEqual({ data: { ok: true } });
+      expect(getSessionDashboard().locations).toEqual([]);
+      expect(existsSync(folder)).toBe(true);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 });
 

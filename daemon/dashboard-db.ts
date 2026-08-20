@@ -619,6 +619,31 @@ export function deleteDashboardLocation(
   return run();
 }
 
+/**
+ * Unregister every worktree in a workspace group and clear its resume history.
+ * Files and Git worktrees on disk are never touched.
+ */
+export function deleteDashboardGroup(
+  handle: DashboardDatabase,
+  groupPath: string,
+): boolean {
+  if (!isNonEmptyString(groupPath, 1024)) {
+    throw new Error("invalid dashboard group path");
+  }
+  const db = assertOpen(handle);
+  const run = db.transaction(() => {
+    db.query(`DELETE FROM resume_sessions WHERE group_path = ?`).run(groupPath);
+    db.query(`DELETE FROM favorite_repositories WHERE group_path = ?`).run(
+      groupPath,
+    );
+    const result = db
+      .query(`DELETE FROM dashboard_locations WHERE group_path = ?`)
+      .run(groupPath);
+    return result.changes > 0;
+  });
+  return run();
+}
+
 // ── Repository favorites CRUD ─────────────────────────────────────────
 
 /** Absolute repository group paths marked favorite, sorted for stable snapshots. */

@@ -32,6 +32,7 @@ import {
   registerDashboardLocation,
   registerDashboardLocations,
   registerDashboardPaths,
+  removeDashboardGroup,
   removeDashboardLocation,
   setRepositoryFavorite,
   subscribeSessionChanges,
@@ -58,6 +59,7 @@ import {
   parseLaunchSessionInput,
   parseHostSessionHeartbeat,
   parseRequestDecision,
+  parseRemoveWorkspaceInput,
   parseSetRepositoryFavoriteInput,
   readJsonBody,
   stripEncryptedLink,
@@ -783,6 +785,39 @@ async function handleSetRepositoryFavorite(
   return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }
 
+async function handleRemoveWorkspace(
+  req: Request,
+  config: ShareConfig,
+): Promise<Response> {
+  const auth = await requireDashboardAuth(req, config);
+  if (!isAuthOk(auth)) return noStore(auth);
+  if (!isJsonContentType(req)) {
+    return err("Content-Type must be application/json", 400);
+  }
+  const parsedBody = await readJsonBody(req);
+  if (!parsedBody.ok) return err(parsedBody.error, 400);
+  const input = parseRemoveWorkspaceInput(parsedBody.value);
+  if (!input) return err("Invalid body", 400);
+
+  const exists = listDashboardLocations().some(
+    (location) => location.group.path === input.groupPath,
+  );
+  if (!exists) return err("Workspace not found", 404);
+  const hasLiveSessions = listSessions().some(
+    (session) => session.group.path === input.groupPath,
+  );
+  if (hasLiveSessions) {
+    return err("Remove live sessions before removing this workspace", 409);
+  }
+
+  try {
+    removeDashboardGroup(input.groupPath);
+  } catch {
+    return err("Could not remove workspace", 500);
+  }
+  return jsonOk({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+}
+
 function isAdvertisedWorktreePath(worktreePath: string): boolean {
   return listDashboardLocations().some(
     (location) => location.worktree.path === worktreePath,
@@ -1459,6 +1494,9 @@ export async function handleApi(
   }
   if (pathname === "/api/repositories/favorite" && method === "POST") {
     return handleSetRepositoryFavorite(req, config);
+  }
+  if (pathname === "/api/workspaces" && method === "DELETE") {
+    return handleRemoveWorkspace(req, config);
   }
   if (pathname === "/api/events" && method === "GET") {
     return handleEvents(req, config);
