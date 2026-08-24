@@ -17,7 +17,8 @@
  * running. This extension never starts/stops launchd or Tailscale. Native host always uses
  * ws://127.0.0.1:7466; password-gated guest links wrap config.publicOrigin via https://my.omp.sh/#…
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -93,6 +94,7 @@ type BridgeState = {
 	webLink: string | null;
 	waiters: Array<(link: string | null) => void>;
 	stdoutPatched: boolean;
+	pumpPatched: boolean;
 	stdoutTail: string;
 	protoPatched: boolean;
 };
@@ -122,6 +124,11 @@ const PUBLIC_COLLAB_WEB_ORIGIN = "https://my.omp.sh";
 const NATIVE_COLLAB_WS = "ws://127.0.0.1:7466";
 const NATIVE_COLLAB_COMMAND = `/collab ${NATIVE_COLLAB_WS}`;
 const JOIN_REQUEST_POLL_MS = 1_000;
+// Enters spaced 1.5s (150 polls x 10ms). OMP 18 wires key dispatch only after
+// TUI init completes: ~4s in real terminals, ~20s in bare PTYs.
+const SUBMIT_ROUNDS = 20;
+const SUBMIT_RETRY_ROUNDS = 4;
+const SUBMIT_POLLS_PER_ROUND = 150;
 const LOOPBACK_HTTP_ORIGINS: Record<string, true> = {
 	"http://127.0.0.1:7466": true,
 	"http://localhost:7466": true,
@@ -135,6 +142,7 @@ const bridge: BridgeState = {
 	webLink: null,
 	waiters: [],
 	stdoutPatched: false,
+	pumpPatched: false,
 	stdoutTail: "",
 	protoPatched: false,
 };
@@ -350,6 +358,61 @@ function installStdoutCapture(): void {
 	}
 }
 
+type TtyWriterModule = {
+	TtyWriter?: { prototype: { write(chunk: string | Uint8Array): number } };
+};
+
+// Compiled OMP 18 renders through the pi-natives TtyWriter pump, bypassing
+// process.stdout.write; requiring the same .node file yields the live class.
+function installTtyPumpCapture(): void {
+	if (bridge.pumpPatched) return;
+	bridge.pumpPatched = true;
+	const home = process.env.HOME;
+	if (!home) return;
+	const nativesRoot = path.join(home, ".omp/natives");
+	let versions: string[];
+	try {
+		versions = readdirSync(nativesRoot);
+	} catch {
+		return;
+	}
+	const nodeRequire = createRequire(import.meta.url);
+	let pumpTail = "";
+	for (const version of versions) {
+		let files: string[];
+		try {
+			files = readdirSync(path.join(nativesRoot, version));
+		} catch {
+			continue;
+		}
+		for (const file of files) {
+			if (!file.endsWith(".node")) continue;
+			try {
+				const mod = nodeRequire(path.join(nativesRoot, version, file)) as TtyWriterModule;
+				const proto = mod.TtyWriter?.prototype;
+				if (!proto || typeof proto.write !== "function") continue;
+				const originalWrite = proto.write;
+				proto.write = function (chunk: string | Uint8Array) {
+					try {
+						const text =
+							typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+						if (text) {
+							const combined = pumpTail + text;
+							scanTextForCollabLink(combined);
+							pumpTail = combined.slice(-2048);
+						}
+					} catch {
+						// Never break TUI writes.
+					}
+					return originalWrite.call(this, chunk);
+				};
+			} catch {
+				// Not the natives module we expected; leave it untouched.
+			}
+		}
+	}
+}
+
 async function tryPatchCollabHostPrototype(pkgRoot: string): Promise<boolean> {
 	if (bridge.protoPatched) return true;
 	const hostPath = path.join(pkgRoot, "src/collab/host.ts");
@@ -440,6 +503,7 @@ async function installCollabBridge(): Promise<{ ok: boolean; reason?: string }> 
 	// patches validate their target shapes and safely fall back when they differ.
 	bridge.versionOk = versionCompatible(version);
 	installStdoutCapture();
+	installTtyPumpCapture();
 
 	if (pkgRoot) {
 		enableCollabGuestTitleGeneration(pkgRoot);
@@ -703,54 +767,57 @@ async function handleJoinRequest(rt: SessionRuntime, req: JoinRequest): Promise<
 
 type EditorTextApi = Pick<ExtensionContext["ui"], "getEditorText" | "setEditorText">;
 
+// OMP 18 drops keys until TUI init finishes wiring dispatch; dropped Enters
+// never resurface, so rounds re-submit with the command left in the editor.
 /** Submit an internal command without consuming a resumed session's editor prefill. */
 export async function submitEditorCommandPreservingDraft(
 	ui: EditorTextApi,
 	command: string,
 	submit: () => boolean,
 	waitForDispatch: () => Promise<void>,
+	rounds = SUBMIT_ROUNDS,
+	pollsPerRound = SUBMIT_POLLS_PER_ROUND,
 ): Promise<boolean> {
 	let draft: string;
 	try {
 		draft = ui.getEditorText() ?? "";
-		ui.setEditorText(command);
 	} catch {
 		return false;
 	}
 
-	let submitted = false;
-	try {
-		submitted = submit();
-	} catch {
-		// Restore the draft below.
-	}
-	if (!submitted) {
+	for (let round = 0; round < rounds; round++) {
 		try {
-			ui.setEditorText(draft);
+			ui.setEditorText(command);
 		} catch {
-			// ignore
+			break;
 		}
-		return false;
-	}
+		let submitted = false;
+		try {
+			submitted = submit();
+		} catch {
+			// Restore the draft below.
+		}
+		if (!submitted) break;
 
-	// stdin dispatch is asynchronous. Wait until the editor consumed the
-	// command before restoring the prefill, or Enter submits the prefill itself.
-	for (let attempt = 0; attempt < 20; attempt++) {
-		await waitForDispatch();
-		let current: string;
-		try {
-			current = ui.getEditorText() ?? "";
-		} catch {
-			return false;
-		}
-		if (current === draft) return true;
-		if (current !== "" && current !== command) return false;
-		if (current === "") {
+		// stdin dispatch is asynchronous. Wait until the editor consumed the
+		// command before restoring the prefill, or Enter submits the prefill itself.
+		for (let attempt = 0; attempt < pollsPerRound; attempt++) {
+			await waitForDispatch();
+			let current: string;
 			try {
-				ui.setEditorText(draft);
-				return true;
+				current = ui.getEditorText() ?? "";
 			} catch {
 				return false;
+			}
+			if (current === draft) return true;
+			if (current !== "" && current !== command) return false;
+			if (current === "") {
+				try {
+					ui.setEditorText(draft);
+					return true;
+				} catch {
+					return false;
+				}
 			}
 		}
 	}
@@ -763,27 +830,34 @@ export async function submitEditorCommandPreservingDraft(
 	return false;
 }
 
-async function tryTriggerNativeCollab(
-	rt: SessionRuntime,
-	waitForGuestLink = true,
-): Promise<boolean> {
+let triggerInFlight: Promise<boolean> | null = null;
+
+async function tryTriggerNativeCollab(rt: SessionRuntime): Promise<boolean> {
 	if (bridge.rawWebLink || bridge.webLink) return true;
 	if (!rt.ctx.hasUI) return false;
 
-	const submitted = await submitEditorCommandPreservingDraft(
-		rt.ctx.ui,
-		NATIVE_COLLAB_COMMAND,
-		injectEnter,
-		() =>
-			new Promise<void>(resolve => {
-				rt.ctx.setTimeout(() => resolve(), 10);
-			}),
-	);
-	if (!submitted) return false;
-	if (!waitForGuestLink) return true;
-
-	const link = await waitForWebLink(12_000, rt.ctx);
-	return Boolean(link);
+	triggerInFlight ??= (async () => {
+		for (const rounds of [SUBMIT_ROUNDS, SUBMIT_RETRY_ROUNDS]) {
+			const submitted = await submitEditorCommandPreservingDraft(
+				rt.ctx.ui,
+				NATIVE_COLLAB_COMMAND,
+				injectEnter,
+				() =>
+					new Promise<void>(resolve => {
+						rt.ctx.setTimeout(() => resolve(), 10);
+					}),
+				rounds,
+			);
+			// A cleared editor can also be TUI init resetting it; the link is
+			// the only reliable signal, so re-submit once before giving up.
+			if (submitted && (await waitForWebLink(12_000, rt.ctx))) return true;
+			if (bridge.rawWebLink || bridge.webLink) return true;
+		}
+		return Boolean(bridge.rawWebLink || bridge.webLink);
+	})().finally(() => {
+		triggerInFlight = null;
+	});
+	return triggerInFlight;
 }
 
 async function isConfiguredDaemonReachable(config: ShareConfig): Promise<boolean> {

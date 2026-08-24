@@ -137,6 +137,59 @@ test("auto-collab preserves a resumed session prefill", async () => {
   expect(editorText).toBe("continue existing task");
 });
 
+test("auto-collab resubmits when the TUI drops early Enter events", async () => {
+  let editorText = "resume draft";
+  let submits = 0;
+  const ui = {
+    getEditorText: () => editorText,
+    setEditorText: (text: string) => {
+      editorText = text;
+    },
+  };
+
+  const ok = await submitEditorCommandPreservingDraft(
+    ui,
+    "/collab ws://127.0.0.1:7466",
+    () => {
+      submits++;
+      // OMP 18 drops synthetic Enters until key dispatch is wired.
+      if (submits === 3) editorText = "";
+      return true;
+    },
+    async () => {},
+  );
+
+  expect(ok).toBe(true);
+  expect(submits).toBe(3);
+  expect(editorText).toBe("resume draft");
+});
+
+test("auto-collab restores the draft when dispatch never happens", async () => {
+  let editorText = "resume draft";
+  let submits = 0;
+  const ui = {
+    getEditorText: () => editorText,
+    setEditorText: (text: string) => {
+      editorText = text;
+    },
+  };
+
+  const ok = await submitEditorCommandPreservingDraft(
+    ui,
+    "/collab ws://127.0.0.1:7466",
+    () => {
+      submits++;
+      return true;
+    },
+    async () => {},
+    3,
+  );
+
+  expect(ok).toBe(false);
+  expect(submits).toBe(3);
+  expect(editorText).toBe("resume draft");
+});
+
 test("collab QR component is suppressed", async () => {
   const packageRoot = new URL("../node_modules/@oh-my-pi/pi-coding-agent/", import.meta.url).pathname;
   expect(await disableCollabQrCode(packageRoot)).toBe(true);
