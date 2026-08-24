@@ -170,9 +170,25 @@ describe("buildOmpTerminalArgs", () => {
     expect(args).not.toContain("/usr/bin/open");
     expect(args.join(" ")).toContain('tell application "Ghostty"');
     expect(args.join(" ")).toContain("new window with configuration");
-    expect(args.join(" ")).toContain("initial working directory");
     expect(args.join(" ")).toContain("OMP_SESSION_ORIGIN=adhoc");
     expect(args.slice(-2)).toEqual(["/tmp/worktree", "/tmp/omp"]);
+    // Ghostty ignores initial working directory; the shell cds itself.
+    expect(args.at(-3)).toContain('cd "$2" && exec');
+    expect(args.join(" ")).toContain("quoted form of item -2 of argv");
+  });
+
+  test("Ghostty resume cds to the worktree and resumes by argv path", () => {
+    const sessionFile = "/Users/host/.omp/sessions/abc.jsonl";
+    const args = buildOmpGhosttyArgs("/tmp/worktree", "/tmp/omp", {
+      resumeSessionFile: sessionFile,
+    });
+
+    const shellScript = args.at(-4);
+    expect(shellScript).toContain('cd "$2" && exec');
+    expect(shellScript).toContain('--resume "$3"');
+    expect(shellScript).not.toContain(sessionFile);
+    expect(args.join(" ")).toContain("quoted form of item 2 of argv");
+    expect(args.slice(-3)).toEqual([sessionFile, "/tmp/worktree", "/tmp/omp"]);
   });
 
 

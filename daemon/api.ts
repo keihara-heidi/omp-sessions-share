@@ -470,12 +470,14 @@ export function buildOmpGhosttyArgs(
     origin === "adhoc"
       ? '/usr/bin/env OMP_SESSION_ORIGIN=adhoc "$1"'
       : '"$1"';
+  // Ghostty ignores the AppleScript initial-working-directory key, so the
+  // shell must cd itself; $1 = omp path, $2 = worktree, $3.. = extra args.
   const shellScript =
     resumeSessionFile !== undefined
-      ? `exec ${executable} --resume "$2"`
+      ? `cd "$2" && exec ${executable} --resume "$3"`
       : prompt === undefined
-        ? `exec ${executable}`
-        : `trap '/bin/rm -rf "$3"' EXIT HUP INT TERM; ${executable} @"$2"; exit`;
+        ? `cd "$2" && exec ${executable}`
+        : `cd "$2" && trap '/bin/rm -rf "$4"' EXIT HUP INT TERM; ${executable} @"$3"; exit`;
   const extraArgs =
     resumeSessionFile !== undefined
       ? [resumeSessionFile]
@@ -484,6 +486,7 @@ export function buildOmpGhosttyArgs(
         : [];
   const commandArgs = [
     "quoted form of item -1 of argv",
+    "quoted form of item -2 of argv",
     ...extraArgs.map((_, index) => `quoted form of item ${index + 2} of argv`),
   ];
   const launchCommand =
